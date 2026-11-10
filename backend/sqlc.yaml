@@ -1,0 +1,19 @@
+# sqlc reads your migrations (the schema) and the hand-written SQL in queries/,
+# then generates type-safe Go functions into internal/store. You never write the
+# DB plumbing by hand — you write SQL, run `sqlc generate`, and call the methods.
+#
+# Right now queries/ is empty, so generation is a no-op. Once PR2 adds
+# queries/users.sql, run `sqlc generate` to produce internal/store/*.sql.go.
+version: "2"
+sql:
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "queries"
+    gen:
+      go:
+        package: "store"
+        out: "internal/store"
+        sql_package: "pgx/v5"
+        emit_json_tags: true
+        emit_interface: true
+        emit_empty_slices: true

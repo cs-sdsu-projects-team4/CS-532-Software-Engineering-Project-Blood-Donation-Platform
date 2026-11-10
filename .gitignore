@@ -1,0 +1,30 @@
+# --- Secrets / environment ---
+# Only *.env.example files are committed; real env files stay local.
+.env
+deploy/.env
+*.local.env
+
+# --- Go ---
+/backend/bin/
+*.exe
+*.test
+*.out
+*.prof
+
+# --- Node / web ---
+node_modules/
+dist/
+.vite/
+*.log
+
+# --- Flutter / mobile (added later) ---
+mobile/.dart_tool/
+mobile/build/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+
+# --- Editor / OS ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

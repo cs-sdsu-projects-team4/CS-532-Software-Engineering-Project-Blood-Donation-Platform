@@ -1,0 +1,2 @@
+# Hand-written SQL for sqlc lives here (one file per resource, e.g. users.sql).
+# Empty for now; populated starting in PR2 (accounts & auth).
