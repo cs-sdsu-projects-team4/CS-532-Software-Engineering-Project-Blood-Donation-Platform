@@ -129,7 +129,12 @@ func (h *apiHandler) listClinicRequests(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
-	rows, err := h.queries.ListBloodRequestsByClinic(r.Context(), member.ClinicID)
+	limit, offset := parsePagination(r)
+	rows, err := h.queries.ListBloodRequestsByClinic(r.Context(), store.ListBloodRequestsByClinicParams{
+		ClinicID:  member.ClinicID,
+		RowLimit:  limit,
+		RowOffset: offset,
+	})
 	if err != nil {
 		h.serverError(w, "list blood requests", err)
 		return
@@ -182,9 +187,21 @@ func (h *apiHandler) approveRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	approved, err := h.queries.ApproveBloodRequest(r.Context(), store.ApproveBloodRequestParams{
-		ApprovedBy: pgtype.Int8{Int64: id.UserID, Valid: true},
-		ID:         reqID,
+	// Approve and run matching atomically: if matching fails the approval rolls
+	// back, so a request is never left "approved" with no matches and no retry.
+	var approved store.ApproveBloodRequestRow
+	var matches []store.DonorMatch
+	err := h.inTx(r.Context(), func(q store.Querier) error {
+		var e error
+		approved, e = q.ApproveBloodRequest(r.Context(), store.ApproveBloodRequestParams{
+			ApprovedBy: pgtype.Int8{Int64: id.UserID, Valid: true},
+			ID:         reqID,
+		})
+		if e != nil {
+			return e
+		}
+		matches, e = matching.NewEngine(q).Run(r.Context(), matching.Request{ID: approved.ID, BloodType: approved.BloodType})
+		return e
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -192,14 +209,6 @@ func (h *apiHandler) approveRequest(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.serverError(w, "approve request", err)
-		return
-	}
-
-	// Run the deterministic matching pipeline now that the request is approved.
-	engine := matching.NewEngine(h.queries)
-	matches, err := engine.Run(r.Context(), matching.Request{ID: approved.ID, BloodType: approved.BloodType})
-	if err != nil {
-		h.serverError(w, "run matching", err)
 		return
 	}
 
@@ -283,7 +292,12 @@ func (h *apiHandler) listRequestMatches(w http.ResponseWriter, r *http.Request) 
 	if _, ok := h.loadClinicRequest(w, r.Context(), reqID, member.ClinicID); !ok {
 		return
 	}
-	rows, err := h.queries.ListMatchesForRequest(r.Context(), reqID)
+	limit, offset := parsePagination(r)
+	rows, err := h.queries.ListMatchesForRequest(r.Context(), store.ListMatchesForRequestParams{
+		RequestID: reqID,
+		RowLimit:  limit,
+		RowOffset: offset,
+	})
 	if err != nil {
 		h.serverError(w, "list request matches", err)
 		return
@@ -306,6 +320,25 @@ func (h *apiHandler) listRequestMatches(w http.ResponseWriter, r *http.Request) 
 }
 
 // --- shared helpers for the clinic/request handlers ---
+
+// inTx runs fn inside a database transaction, committing on success and rolling
+// back on any error, so multi-statement operations stay atomic. When h.pool is
+// nil (handler unit tests backed by the fake Querier) it runs fn directly against
+// h.queries — there is no real transaction to open.
+func (h *apiHandler) inTx(ctx context.Context, fn func(q store.Querier) error) error {
+	if h.pool == nil {
+		return fn(h.queries)
+	}
+	tx, err := h.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) // no-op after a successful commit
+	if err := fn(store.New(tx)); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
 
 // callerMembership returns the clinic the authenticated staff user belongs to.
 // It writes a 403 and returns ok=false when the user staffs no clinic.
@@ -355,6 +388,18 @@ func (h *apiHandler) logActivity(ctx context.Context, actorID int64, action, ent
 	if err != nil {
 		h.logger.Error("activity log failed", "action", action, "entity_id", entityID, "err", err)
 	}
+}
+
+// parsePagination reads ?limit= and ?offset= with sane defaults: limit defaults
+// to 50 and is capped at 200; offset defaults to 0. Applied to all list endpoints
+// so responses never grow unbounded.
+func parsePagination(r *http.Request) (limit, offset int32) {
+	q := r.URL.Query()
+	limit = parseLimit(q.Get("limit"), 50, 200)
+	if v, err := strconv.ParseInt(q.Get("offset"), 10, 32); err == nil && v > 0 {
+		offset = int32(v)
+	}
+	return limit, offset
 }
 
 // parseIDParam reads a positive int64 path parameter, writing a 400 on failure.
