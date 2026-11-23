@@ -92,3 +92,39 @@ func (q *Queries) ListActivityLogsForEntity(ctx context.Context, arg ListActivit
 	}
 	return items, nil
 }
+
+const listRecentActivityLogs = `-- name: ListRecentActivityLogs :many
+SELECT id, actor_user_id, action, entity_type, entity_id, metadata, created_at
+FROM activity_logs
+ORDER BY created_at DESC
+LIMIT $1
+`
+
+// System-admin audit feed: the most recent entries across all entities (FR-13).
+func (q *Queries) ListRecentActivityLogs(ctx context.Context, rowLimit int32) ([]ActivityLog, error) {
+	rows, err := q.db.Query(ctx, listRecentActivityLogs, rowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ActivityLog{}
+	for rows.Next() {
+		var i ActivityLog
+		if err := rows.Scan(
+			&i.ID,
+			&i.ActorUserID,
+			&i.Action,
+			&i.EntityType,
+			&i.EntityID,
+			&i.Metadata,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

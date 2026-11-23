@@ -20,6 +20,21 @@ SELECT id, name, contact_email, contact_phone, address, latitude, longitude, cre
 FROM clinics
 WHERE id = @id;
 
+-- name: ListClinics :many
+-- System-admin clinic directory.
+SELECT id, name, contact_email, contact_phone, address, latitude, longitude, created_at, updated_at
+FROM clinics
+ORDER BY name;
+
+-- name: ListClinicMembers :many
+-- Staff of a clinic with their account details (system_admin / clinic_admin view).
+SELECT cm.id, cm.clinic_id, cm.user_id, cm.role, cm.created_at,
+    u.full_name, u.email
+FROM clinic_members cm
+JOIN users u ON u.id = cm.user_id
+WHERE cm.clinic_id = @clinic_id
+ORDER BY cm.created_at;
+
 -- name: AddClinicMember :one
 INSERT INTO clinic_members (clinic_id, user_id, role)
 VALUES (@clinic_id, @user_id, @role)

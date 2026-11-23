@@ -154,3 +154,100 @@ func (q *Queries) GetClinicMembershipByUser(ctx context.Context, userID int64) (
 	)
 	return i, err
 }
+
+const listClinicMembers = `-- name: ListClinicMembers :many
+SELECT cm.id, cm.clinic_id, cm.user_id, cm.role, cm.created_at,
+    u.full_name, u.email
+FROM clinic_members cm
+JOIN users u ON u.id = cm.user_id
+WHERE cm.clinic_id = $1
+ORDER BY cm.created_at
+`
+
+type ListClinicMembersRow struct {
+	ID        int64              `json:"id"`
+	ClinicID  int64              `json:"clinic_id"`
+	UserID    int64              `json:"user_id"`
+	Role      UserRole           `json:"role"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	FullName  string             `json:"full_name"`
+	Email     string             `json:"email"`
+}
+
+// Staff of a clinic with their account details (system_admin / clinic_admin view).
+func (q *Queries) ListClinicMembers(ctx context.Context, clinicID int64) ([]ListClinicMembersRow, error) {
+	rows, err := q.db.Query(ctx, listClinicMembers, clinicID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListClinicMembersRow{}
+	for rows.Next() {
+		var i ListClinicMembersRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ClinicID,
+			&i.UserID,
+			&i.Role,
+			&i.CreatedAt,
+			&i.FullName,
+			&i.Email,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listClinics = `-- name: ListClinics :many
+SELECT id, name, contact_email, contact_phone, address, latitude, longitude, created_at, updated_at
+FROM clinics
+ORDER BY name
+`
+
+type ListClinicsRow struct {
+	ID           int64              `json:"id"`
+	Name         string             `json:"name"`
+	ContactEmail pgtype.Text        `json:"contact_email"`
+	ContactPhone pgtype.Text        `json:"contact_phone"`
+	Address      pgtype.Text        `json:"address"`
+	Latitude     pgtype.Float8      `json:"latitude"`
+	Longitude    pgtype.Float8      `json:"longitude"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+}
+
+// System-admin clinic directory.
+func (q *Queries) ListClinics(ctx context.Context) ([]ListClinicsRow, error) {
+	rows, err := q.db.Query(ctx, listClinics)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListClinicsRow{}
+	for rows.Next() {
+		var i ListClinicsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.ContactEmail,
+			&i.ContactPhone,
+			&i.Address,
+			&i.Latitude,
+			&i.Longitude,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
