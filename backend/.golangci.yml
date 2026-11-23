@@ -1,0 +1,18 @@
+# golangci-lint configuration for the Blood Donation backend.
+# A deliberately small, low-noise set on top of gofmt/govet so CI stays green and
+# signal stays high. Run locally with: golangci-lint run  (from backend/).
+run:
+  timeout: 5m
+
+linters:
+  disable-all: true
+  enable:
+    - gofmt # formatting (same as `gofmt -l`)
+    - govet # suspicious constructs (same as `go vet`)
+    - ineffassign # assignments never used
+    - misspell # common English misspellings in comments/strings
+
+issues:
+  # Generated sqlc code is never hand-edited; don't lint it.
+  exclude-dirs:
+    - internal/store
