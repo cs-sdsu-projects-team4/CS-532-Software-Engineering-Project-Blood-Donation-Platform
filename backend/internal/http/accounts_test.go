@@ -57,6 +57,11 @@ func newTestEnv(t *testing.T) *testEnv {
 	})
 	fake.memberships[2] = store.ClinicMember{ID: 1, ClinicID: 100, UserID: 2, Role: store.UserRoleClinicAdmin}
 	fake.memberships[3] = store.ClinicMember{ID: 2, ClinicID: 100, UserID: 3, Role: store.UserRoleClinicEmployee}
+	// A system admin user id 4 (no clinic membership, no donor profile).
+	fake.addUser(store.User{
+		ID: 4, Email: "root@system.example", PasswordHash: hash,
+		Role: store.UserRoleSystemAdmin, FullName: "Sam System",
+	})
 
 	api := &apiHandler{queries: fake, pool: nil, tokens: tm, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
 
@@ -115,6 +120,15 @@ func (e *testEnv) adminToken(t *testing.T) string {
 func (e *testEnv) employeeToken(t *testing.T) string {
 	t.Helper()
 	p, err := e.tokens.IssuePair(3, auth.RoleClinicEmployee)
+	if err != nil {
+		t.Fatalf("issue: %v", err)
+	}
+	return p.AccessToken
+}
+
+func (e *testEnv) systemAdminToken(t *testing.T) string {
+	t.Helper()
+	p, err := e.tokens.IssuePair(4, auth.RoleSystemAdmin)
 	if err != nil {
 		t.Fatalf("issue: %v", err)
 	}
