@@ -24,8 +24,11 @@ type fakeStore struct {
 	memberships  map[int64]store.ClinicMember
 	requests     map[int64]store.GetBloodRequestRow
 	clinics      map[int64]store.GetClinicRow
+	matches      map[int64]store.DonorMatch
+	appointments map[int64]store.Appointment
 	nextReqID    int64
 	nextClinicID int64
+	nextApptID   int64
 	matchCount   int // how many matches MatchRequestDonors returns
 }
 
@@ -40,6 +43,8 @@ func newFakeStore() *fakeStore {
 		memberships:  map[int64]store.ClinicMember{},
 		requests:     map[int64]store.GetBloodRequestRow{},
 		clinics:      map[int64]store.GetClinicRow{},
+		matches:      map[int64]store.DonorMatch{},
+		appointments: map[int64]store.Appointment{},
 	}
 }
 
@@ -172,6 +177,88 @@ func (f *fakeStore) MatchRequestDonors(_ context.Context, arg store.MatchRequest
 	out := make([]store.DonorMatch, f.matchCount)
 	for i := range out {
 		out[i] = store.DonorMatch{ID: int64(i + 1), RequestID: arg.RequestID, DonorUserID: int64(i + 1)}
+	}
+	return out, nil
+}
+
+func (f *fakeStore) GetDonorMatch(_ context.Context, id int64) (store.DonorMatch, error) {
+	m, ok := f.matches[id]
+	if !ok {
+		return store.DonorMatch{}, pgx.ErrNoRows
+	}
+	return m, nil
+}
+
+func (f *fakeStore) RespondToMatch(_ context.Context, arg store.RespondToMatchParams) (store.DonorMatch, error) {
+	m, ok := f.matches[arg.ID]
+	// Mirror the SQL guards: only the owning donor, only from 'notified'.
+	if !ok || m.DonorUserID != arg.DonorUserID || m.Status != store.MatchStatusNotified {
+		return store.DonorMatch{}, pgx.ErrNoRows
+	}
+	m.Status = arg.Status
+	m.RespondedAt = pgtype.Timestamptz{Time: time.Now(), Valid: true}
+	f.matches[arg.ID] = m
+	return m, nil
+}
+
+func (f *fakeStore) ListMatchesForDonor(_ context.Context, arg store.ListMatchesForDonorParams) ([]store.ListMatchesForDonorRow, error) {
+	out := []store.ListMatchesForDonorRow{}
+	for _, m := range f.matches {
+		if m.DonorUserID == arg.DonorUserID {
+			out = append(out, store.ListMatchesForDonorRow{ID: m.ID, RequestID: m.RequestID, Status: m.Status})
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeStore) CreateAppointment(_ context.Context, arg store.CreateAppointmentParams) (store.Appointment, error) {
+	f.nextApptID++
+	a := store.Appointment{
+		ID:          f.nextApptID,
+		RequestID:   arg.RequestID,
+		DonorUserID: arg.DonorUserID,
+		ClinicID:    arg.ClinicID,
+		ScheduledAt: arg.ScheduledAt,
+		Status:      store.AppointmentStatusScheduled,
+	}
+	f.appointments[a.ID] = a
+	return a, nil
+}
+
+func (f *fakeStore) GetAppointment(_ context.Context, id int64) (store.Appointment, error) {
+	a, ok := f.appointments[id]
+	if !ok {
+		return store.Appointment{}, pgx.ErrNoRows
+	}
+	return a, nil
+}
+
+func (f *fakeStore) SetAppointmentStatus(_ context.Context, arg store.SetAppointmentStatusParams) (store.Appointment, error) {
+	a, ok := f.appointments[arg.ID]
+	if !ok {
+		return store.Appointment{}, pgx.ErrNoRows
+	}
+	a.Status = arg.Status
+	f.appointments[arg.ID] = a
+	return a, nil
+}
+
+func (f *fakeStore) ListAppointmentsForDonor(_ context.Context, arg store.ListAppointmentsForDonorParams) ([]store.Appointment, error) {
+	out := []store.Appointment{}
+	for _, a := range f.appointments {
+		if a.DonorUserID == arg.DonorUserID {
+			out = append(out, a)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeStore) ListAppointmentsForClinic(_ context.Context, arg store.ListAppointmentsForClinicParams) ([]store.Appointment, error) {
+	out := []store.Appointment{}
+	for _, a := range f.appointments {
+		if a.ClinicID == arg.ClinicID {
+			out = append(out, a)
+		}
 	}
 	return out, nil
 }
