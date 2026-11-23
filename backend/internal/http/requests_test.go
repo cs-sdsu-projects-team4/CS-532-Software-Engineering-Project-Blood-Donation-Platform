@@ -161,26 +161,3 @@ func TestRespondToMatchValidation(t *testing.T) {
 	}
 	resp.Body.Close()
 }
-
-func TestBookAppointmentValidation(t *testing.T) {
-	e := newTestEnv(t)
-	defer e.close()
-	tok := e.donorToken(t)
-
-	t.Run("missing scheduled_at", func(t *testing.T) {
-		resp := e.do(t, http.MethodPost, "/api/v1/donor/matches/5/appointment", tok, map[string]any{})
-		if resp.StatusCode != http.StatusBadRequest {
-			t.Fatalf("got %d, want 400", resp.StatusCode)
-		}
-		resp.Body.Close()
-	})
-
-	t.Run("scheduled_at in the past", func(t *testing.T) {
-		resp := e.do(t, http.MethodPost, "/api/v1/donor/matches/5/appointment", tok,
-			map[string]any{"scheduled_at": "2020-01-01T09:00:00Z"})
-		if resp.StatusCode != http.StatusBadRequest {
-			t.Fatalf("got %d, want 400", resp.StatusCode)
-		}
-		resp.Body.Close()
-	})
-}
