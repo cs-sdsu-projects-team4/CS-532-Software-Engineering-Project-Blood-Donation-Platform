@@ -232,6 +232,9 @@ paths:
     get:
       tags: [requests]
       summary: List the caller's clinic's requests
+      parameters:
+        - { $ref: "#/components/parameters/LimitParam" }
+        - { $ref: "#/components/parameters/OffsetParam" }
       responses:
         "200":
           description: Requests
@@ -348,6 +351,9 @@ paths:
     get:
       tags: [matches]
       summary: The caller's matches with request context (FR-10)
+      parameters:
+        - { $ref: "#/components/parameters/LimitParam" }
+        - { $ref: "#/components/parameters/OffsetParam" }
       responses:
         "200":
           description: Matches
@@ -414,6 +420,9 @@ paths:
     get:
       tags: [appointments]
       summary: The caller's appointments
+      parameters:
+        - { $ref: "#/components/parameters/LimitParam" }
+        - { $ref: "#/components/parameters/OffsetParam" }
       responses:
         "200":
           description: Appointments
@@ -444,6 +453,9 @@ paths:
     get:
       tags: [appointments]
       summary: Appointments at the caller's clinic (clinic staff)
+      parameters:
+        - { $ref: "#/components/parameters/LimitParam" }
+        - { $ref: "#/components/parameters/OffsetParam" }
       responses:
         "200":
           description: Appointments
