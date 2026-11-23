@@ -24,6 +24,13 @@ type Config struct {
 	JWTIssuer       string
 	AccessTokenTTL  time.Duration
 	RefreshTokenTTL time.Duration
+
+	// Optional first-run bootstrap of a system_admin account. When both are set,
+	// the API ensures a system_admin with this email exists on startup (idempotent).
+	// Leave unset in environments where the admin already exists. Never commit a
+	// real password — set it locally/in deployment secrets.
+	BootstrapAdminEmail    string
+	BootstrapAdminPassword string
 }
 
 // Load reads configuration from the environment and validates required values.
@@ -37,6 +44,9 @@ func Load() (Config, error) {
 		JWTIssuer:       getEnv("JWT_ISSUER", "blood-donation-api"),
 		AccessTokenTTL:  getEnvDuration("ACCESS_TOKEN_TTL", 15*time.Minute),
 		RefreshTokenTTL: getEnvDuration("REFRESH_TOKEN_TTL", 720*time.Hour), // 30 days
+
+		BootstrapAdminEmail:    os.Getenv("BOOTSTRAP_ADMIN_EMAIL"),
+		BootstrapAdminPassword: os.Getenv("BOOTSTRAP_ADMIN_PASSWORD"),
 	}
 
 	if cfg.DatabaseURL == "" {

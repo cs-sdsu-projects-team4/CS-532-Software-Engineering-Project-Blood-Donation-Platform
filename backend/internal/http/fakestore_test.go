@@ -23,7 +23,9 @@ type fakeStore struct {
 	screenings   map[int64][]store.ScreeningResponse
 	memberships  map[int64]store.ClinicMember
 	requests     map[int64]store.GetBloodRequestRow
+	clinics      map[int64]store.GetClinicRow
 	nextReqID    int64
+	nextClinicID int64
 	matchCount   int // how many matches MatchRequestDonors returns
 }
 
@@ -37,6 +39,7 @@ func newFakeStore() *fakeStore {
 		screenings:   map[int64][]store.ScreeningResponse{},
 		memberships:  map[int64]store.ClinicMember{},
 		requests:     map[int64]store.GetBloodRequestRow{},
+		clinics:      map[int64]store.GetClinicRow{},
 	}
 }
 
@@ -168,5 +171,50 @@ func (f *fakeStore) CreateActivityLog(_ context.Context, _ store.CreateActivityL
 }
 
 func (f *fakeStore) ListPushTokensForUser(_ context.Context, _ int64) ([]store.PushToken, error) {
+	return nil, nil
+}
+
+// --- clinic/staff administration (BE-PR4) ---
+
+func (f *fakeStore) CreateClinic(_ context.Context, arg store.CreateClinicParams) (store.CreateClinicRow, error) {
+	f.nextClinicID++
+	row := store.GetClinicRow{
+		ID:           f.nextClinicID,
+		Name:         arg.Name,
+		ContactEmail: arg.ContactEmail,
+		ContactPhone: arg.ContactPhone,
+		Address:      arg.Address,
+		Latitude:     arg.Latitude,
+		Longitude:    arg.Longitude,
+	}
+	f.clinics[row.ID] = row
+	return store.CreateClinicRow(row), nil
+}
+
+func (f *fakeStore) GetClinic(_ context.Context, id int64) (store.GetClinicRow, error) {
+	c, ok := f.clinics[id]
+	if !ok {
+		return store.GetClinicRow{}, pgx.ErrNoRows
+	}
+	return c, nil
+}
+
+func (f *fakeStore) ListClinics(_ context.Context) ([]store.ListClinicsRow, error) {
+	out := []store.ListClinicsRow{}
+	for _, c := range f.clinics {
+		out = append(out, store.ListClinicsRow(c))
+	}
+	return out, nil
+}
+
+func (f *fakeStore) ListClinicMembers(_ context.Context, _ int64) ([]store.ListClinicMembersRow, error) {
+	return nil, nil
+}
+
+func (f *fakeStore) ListRecentActivityLogs(_ context.Context, _ int32) ([]store.ActivityLog, error) {
+	return nil, nil
+}
+
+func (f *fakeStore) ListActivityLogsForEntity(_ context.Context, _ store.ListActivityLogsForEntityParams) ([]store.ActivityLog, error) {
 	return nil, nil
 }

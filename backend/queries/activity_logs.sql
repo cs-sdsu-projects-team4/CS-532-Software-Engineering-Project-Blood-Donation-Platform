@@ -15,3 +15,10 @@ SELECT id, actor_user_id, action, entity_type, entity_id, metadata, created_at
 FROM activity_logs
 WHERE entity_type = @entity_type AND entity_id = @entity_id
 ORDER BY created_at DESC;
+
+-- name: ListRecentActivityLogs :many
+-- System-admin audit feed: the most recent entries across all entities (FR-13).
+SELECT id, actor_user_id, action, entity_type, entity_id, metadata, created_at
+FROM activity_logs
+ORDER BY created_at DESC
+LIMIT @row_limit;

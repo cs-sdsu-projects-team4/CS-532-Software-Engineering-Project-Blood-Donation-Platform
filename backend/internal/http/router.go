@@ -100,6 +100,23 @@ func mountV1(r chi.Router, api *apiHandler, tokens *auth.TokenManager) {
 					r.Post("/requests/{id}/approve", api.approveRequest)
 				})
 			})
+
+			// System-admin area: provisioning clinics and their staff. Clinics
+			// and staff are never self-registered.
+			r.Group(func(r chi.Router) {
+				r.Use(auth.RequireRole(auth.RoleSystemAdmin))
+
+				r.Post("/admin/clinics", api.createClinic)
+				r.Get("/admin/clinics", api.listClinics)
+				r.Get("/admin/clinics/{id}", api.getClinic)
+
+				// Clinic staff provisioning (clinic_employee / clinic_admin).
+				r.Post("/admin/clinics/{id}/members", api.createClinicMember)
+				r.Get("/admin/clinics/{id}/members", api.listClinicMembers)
+
+				// Audit feed (FR-13): recent, or filtered by entity.
+				r.Get("/admin/activity", api.listActivity)
+			})
 		})
 	})
 }

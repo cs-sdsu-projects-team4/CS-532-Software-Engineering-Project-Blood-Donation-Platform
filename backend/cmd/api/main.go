@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/blood-donation/backend/internal/auth"
+	"github.com/blood-donation/backend/internal/bootstrap"
 	"github.com/blood-donation/backend/internal/config"
 	apihttp "github.com/blood-donation/backend/internal/http"
 	"github.com/blood-donation/backend/internal/store"
@@ -47,6 +48,14 @@ func main() {
 	tokens, err := auth.NewTokenManager(cfg.JWTSecret, cfg.JWTIssuer, cfg.AccessTokenTTL, cfg.RefreshTokenTTL)
 	if err != nil {
 		logger.Error("failed to init token manager", "err", err)
+		os.Exit(1)
+	}
+
+	// Ensure the first system_admin exists if configured (idempotent). Nothing
+	// self-registers as system_admin, so this is how the admin API becomes usable
+	// on a fresh database.
+	if err := bootstrap.EnsureSystemAdmin(ctx, store.New(db), cfg.BootstrapAdminEmail, cfg.BootstrapAdminPassword, logger); err != nil {
+		logger.Error("failed to bootstrap system admin", "err", err)
 		os.Exit(1)
 	}
 
