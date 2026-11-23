@@ -41,7 +41,14 @@ JOIN blood_requests r ON r.id = dm.request_id
 JOIN clinics c ON c.id = r.clinic_id
 WHERE dm.donor_user_id = $1
 ORDER BY dm.notified_at DESC
+LIMIT $3 OFFSET $2
 `
+
+type ListMatchesForDonorParams struct {
+	DonorUserID int64 `json:"donor_user_id"`
+	RowOffset   int32 `json:"row_offset"`
+	RowLimit    int32 `json:"row_limit"`
+}
 
 type ListMatchesForDonorRow struct {
 	ID          int64              `json:"id"`
@@ -58,8 +65,8 @@ type ListMatchesForDonorRow struct {
 }
 
 // Donor-side view: "my matches" with the request context they need to respond.
-func (q *Queries) ListMatchesForDonor(ctx context.Context, donorUserID int64) ([]ListMatchesForDonorRow, error) {
-	rows, err := q.db.Query(ctx, listMatchesForDonor, donorUserID)
+func (q *Queries) ListMatchesForDonor(ctx context.Context, arg ListMatchesForDonorParams) ([]ListMatchesForDonorRow, error) {
+	rows, err := q.db.Query(ctx, listMatchesForDonor, arg.DonorUserID, arg.RowOffset, arg.RowLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +105,14 @@ FROM donor_matches dm
 JOIN users u ON u.id = dm.donor_user_id
 WHERE dm.request_id = $1
 ORDER BY dm.distance_m NULLS LAST
+LIMIT $3 OFFSET $2
 `
+
+type ListMatchesForRequestParams struct {
+	RequestID int64 `json:"request_id"`
+	RowOffset int32 `json:"row_offset"`
+	RowLimit  int32 `json:"row_limit"`
+}
 
 type ListMatchesForRequestRow struct {
 	ID          int64              `json:"id"`
@@ -115,8 +129,8 @@ type ListMatchesForRequestRow struct {
 
 // Clinic-side view: matched donors for a request with contact details, nearest
 // first, so staff can follow up.
-func (q *Queries) ListMatchesForRequest(ctx context.Context, requestID int64) ([]ListMatchesForRequestRow, error) {
-	rows, err := q.db.Query(ctx, listMatchesForRequest, requestID)
+func (q *Queries) ListMatchesForRequest(ctx context.Context, arg ListMatchesForRequestParams) ([]ListMatchesForRequestRow, error) {
+	rows, err := q.db.Query(ctx, listMatchesForRequest, arg.RequestID, arg.RowOffset, arg.RowLimit)
 	if err != nil {
 		return nil, err
 	}

@@ -3,6 +3,7 @@ package http
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/blood-donation/backend/internal/auth"
 	"github.com/blood-donation/backend/internal/store"
@@ -14,7 +15,12 @@ import (
 // request context they need to decide (FR-10).
 func (h *apiHandler) listMyMatches(w http.ResponseWriter, r *http.Request) {
 	id, _ := auth.IdentityFromContext(r.Context())
-	rows, err := h.queries.ListMatchesForDonor(r.Context(), id.UserID)
+	limit, offset := parsePagination(r)
+	rows, err := h.queries.ListMatchesForDonor(r.Context(), store.ListMatchesForDonorParams{
+		DonorUserID: id.UserID,
+		RowLimit:    limit,
+		RowOffset:   offset,
+	})
 	if err != nil {
 		h.serverError(w, "list donor matches", err)
 		return
@@ -117,6 +123,10 @@ func (h *apiHandler) bookAppointment(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", "scheduled_at is required")
 		return
 	}
+	if scheduledAt.Time.Before(time.Now()) {
+		writeError(w, http.StatusBadRequest, "invalid_request", "scheduled_at must be in the future")
+		return
+	}
 
 	match, err := h.queries.GetDonorMatch(r.Context(), matchID)
 	if err != nil {
@@ -165,7 +175,12 @@ func (h *apiHandler) bookAppointment(w http.ResponseWriter, r *http.Request) {
 // listMyAppointments handles GET /api/v1/donor/appointments.
 func (h *apiHandler) listMyAppointments(w http.ResponseWriter, r *http.Request) {
 	id, _ := auth.IdentityFromContext(r.Context())
-	rows, err := h.queries.ListAppointmentsForDonor(r.Context(), id.UserID)
+	limit, offset := parsePagination(r)
+	rows, err := h.queries.ListAppointmentsForDonor(r.Context(), store.ListAppointmentsForDonorParams{
+		DonorUserID: id.UserID,
+		RowLimit:    limit,
+		RowOffset:   offset,
+	})
 	if err != nil {
 		h.serverError(w, "list donor appointments", err)
 		return
@@ -213,7 +228,12 @@ func (h *apiHandler) listClinicAppointments(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return
 	}
-	rows, err := h.queries.ListAppointmentsForClinic(r.Context(), member.ClinicID)
+	limit, offset := parsePagination(r)
+	rows, err := h.queries.ListAppointmentsForClinic(r.Context(), store.ListAppointmentsForClinicParams{
+		ClinicID:  member.ClinicID,
+		RowLimit:  limit,
+		RowOffset: offset,
+	})
 	if err != nil {
 		h.serverError(w, "list clinic appointments", err)
 		return

@@ -38,7 +38,8 @@ SELECT id, clinic_id, created_by, blood_type, units_needed, urgency, status,
     created_at, updated_at
 FROM blood_requests
 WHERE clinic_id = @clinic_id
-ORDER BY created_at DESC;
+ORDER BY created_at DESC
+LIMIT @row_limit OFFSET @row_offset;
 
 -- name: ListPendingBloodRequestsByClinic :many
 -- The clinic_admin approval queue (FR-06): requests awaiting a decision.

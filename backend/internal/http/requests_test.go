@@ -52,6 +52,9 @@ func TestCreateRequestValidation(t *testing.T) {
 		{"non-positive units", map[string]any{"blood_type": "O+", "units_needed": 0}},
 		{"bad urgency", map[string]any{"blood_type": "O+", "units_needed": 1, "urgency": "whenever"}},
 		{"latitude without longitude", map[string]any{"blood_type": "O+", "units_needed": 1, "latitude": 41.7}},
+		{"units too large", map[string]any{"blood_type": "O+", "units_needed": 1000}},
+		{"radius too large", map[string]any{"blood_type": "O+", "units_needed": 1, "radius_m": 999999}},
+		{"needed_by in the past", map[string]any{"blood_type": "O+", "units_needed": 1, "needed_by": "2020-01-01T00:00:00Z"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -104,6 +107,49 @@ func TestApproveFlowAndMatching(t *testing.T) {
 	resp.Body.Close()
 }
 
+// Lifecycle transitions: a pending request can be cancelled but not fulfilled.
+func TestRequestCancelFulfillTransitions(t *testing.T) {
+	e := newTestEnv(t)
+	defer e.close()
+	tok := e.employeeToken(t)
+
+	// Create a pending request (id 1).
+	resp := e.do(t, http.MethodPost, "/api/v1/requests", tok,
+		map[string]any{"blood_type": "O+", "units_needed": 1})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create: got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	t.Run("cannot fulfill a pending request", func(t *testing.T) {
+		resp := e.do(t, http.MethodPost, "/api/v1/requests/1/fulfill", tok, nil)
+		if resp.StatusCode != http.StatusConflict {
+			t.Fatalf("got %d, want 409", resp.StatusCode)
+		}
+		resp.Body.Close()
+	})
+
+	t.Run("cancel a pending request", func(t *testing.T) {
+		resp := e.do(t, http.MethodPost, "/api/v1/requests/1/cancel", tok, nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("got %d, want 200", resp.StatusCode)
+		}
+		var out requestResponse
+		decodeBody(t, resp, &out)
+		if out.Status != "cancelled" {
+			t.Fatalf("status = %q, want cancelled", out.Status)
+		}
+	})
+
+	t.Run("cannot cancel an already-cancelled request", func(t *testing.T) {
+		resp := e.do(t, http.MethodPost, "/api/v1/requests/1/cancel", tok, nil)
+		if resp.StatusCode != http.StatusConflict {
+			t.Fatalf("got %d, want 409", resp.StatusCode)
+		}
+		resp.Body.Close()
+	})
+}
+
 func TestRespondToMatchValidation(t *testing.T) {
 	e := newTestEnv(t)
 	defer e.close()
@@ -114,4 +160,27 @@ func TestRespondToMatchValidation(t *testing.T) {
 		t.Fatalf("got %d, want 400", resp.StatusCode)
 	}
 	resp.Body.Close()
+}
+
+func TestBookAppointmentValidation(t *testing.T) {
+	e := newTestEnv(t)
+	defer e.close()
+	tok := e.donorToken(t)
+
+	t.Run("missing scheduled_at", func(t *testing.T) {
+		resp := e.do(t, http.MethodPost, "/api/v1/donor/matches/5/appointment", tok, map[string]any{})
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("got %d, want 400", resp.StatusCode)
+		}
+		resp.Body.Close()
+	})
+
+	t.Run("scheduled_at in the past", func(t *testing.T) {
+		resp := e.do(t, http.MethodPost, "/api/v1/donor/matches/5/appointment", tok,
+			map[string]any{"scheduled_at": "2020-01-01T09:00:00Z"})
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("got %d, want 400", resp.StatusCode)
+		}
+		resp.Body.Close()
+	})
 }

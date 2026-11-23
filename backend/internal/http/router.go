@@ -88,6 +88,8 @@ func mountV1(r chi.Router, api *apiHandler, tokens *auth.TokenManager) {
 				r.Get("/requests", api.listClinicRequests)
 				r.Get("/requests/{id}", api.getRequest)
 				r.Get("/requests/{id}/matches", api.listRequestMatches)
+				r.Post("/requests/{id}/cancel", api.cancelRequest)
+				r.Post("/requests/{id}/fulfill", api.fulfillRequest)
 
 				// Clinic-side appointment views and outcomes (FR-11).
 				r.Get("/appointments", api.listClinicAppointments)

@@ -77,10 +77,17 @@ SELECT id, request_id, donor_user_id, clinic_id, scheduled_at, status, created_a
 FROM appointments
 WHERE clinic_id = $1
 ORDER BY scheduled_at
+LIMIT $3 OFFSET $2
 `
 
-func (q *Queries) ListAppointmentsForClinic(ctx context.Context, clinicID int64) ([]Appointment, error) {
-	rows, err := q.db.Query(ctx, listAppointmentsForClinic, clinicID)
+type ListAppointmentsForClinicParams struct {
+	ClinicID  int64 `json:"clinic_id"`
+	RowOffset int32 `json:"row_offset"`
+	RowLimit  int32 `json:"row_limit"`
+}
+
+func (q *Queries) ListAppointmentsForClinic(ctx context.Context, arg ListAppointmentsForClinicParams) ([]Appointment, error) {
+	rows, err := q.db.Query(ctx, listAppointmentsForClinic, arg.ClinicID, arg.RowOffset, arg.RowLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -113,10 +120,17 @@ SELECT id, request_id, donor_user_id, clinic_id, scheduled_at, status, created_a
 FROM appointments
 WHERE donor_user_id = $1
 ORDER BY scheduled_at
+LIMIT $3 OFFSET $2
 `
 
-func (q *Queries) ListAppointmentsForDonor(ctx context.Context, donorUserID int64) ([]Appointment, error) {
-	rows, err := q.db.Query(ctx, listAppointmentsForDonor, donorUserID)
+type ListAppointmentsForDonorParams struct {
+	DonorUserID int64 `json:"donor_user_id"`
+	RowOffset   int32 `json:"row_offset"`
+	RowLimit    int32 `json:"row_limit"`
+}
+
+func (q *Queries) ListAppointmentsForDonor(ctx context.Context, arg ListAppointmentsForDonorParams) ([]Appointment, error) {
+	rows, err := q.db.Query(ctx, listAppointmentsForDonor, arg.DonorUserID, arg.RowOffset, arg.RowLimit)
 	if err != nil {
 		return nil, err
 	}

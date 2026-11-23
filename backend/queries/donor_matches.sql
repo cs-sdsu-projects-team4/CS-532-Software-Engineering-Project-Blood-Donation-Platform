@@ -53,7 +53,8 @@ SELECT dm.id, dm.request_id, dm.donor_user_id, dm.distance_m, dm.status,
 FROM donor_matches dm
 JOIN users u ON u.id = dm.donor_user_id
 WHERE dm.request_id = @request_id
-ORDER BY dm.distance_m NULLS LAST;
+ORDER BY dm.distance_m NULLS LAST
+LIMIT @row_limit OFFSET @row_offset;
 
 -- name: ListMatchesForDonor :many
 -- Donor-side view: "my matches" with the request context they need to respond.
@@ -63,7 +64,8 @@ FROM donor_matches dm
 JOIN blood_requests r ON r.id = dm.request_id
 JOIN clinics c ON c.id = r.clinic_id
 WHERE dm.donor_user_id = @donor_user_id
-ORDER BY dm.notified_at DESC;
+ORDER BY dm.notified_at DESC
+LIMIT @row_limit OFFSET @row_offset;
 
 -- name: RespondToMatch :one
 -- Donor accepts/declines (FR-10). Guards ensure only the owning donor can respond

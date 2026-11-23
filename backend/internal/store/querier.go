@@ -60,18 +60,18 @@ type Querier interface {
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id int64) (GetUserByIDRow, error)
 	ListActivityLogsForEntity(ctx context.Context, arg ListActivityLogsForEntityParams) ([]ActivityLog, error)
-	ListAppointmentsForClinic(ctx context.Context, clinicID int64) ([]Appointment, error)
-	ListAppointmentsForDonor(ctx context.Context, donorUserID int64) ([]Appointment, error)
-	ListBloodRequestsByClinic(ctx context.Context, clinicID int64) ([]ListBloodRequestsByClinicRow, error)
+	ListAppointmentsForClinic(ctx context.Context, arg ListAppointmentsForClinicParams) ([]Appointment, error)
+	ListAppointmentsForDonor(ctx context.Context, arg ListAppointmentsForDonorParams) ([]Appointment, error)
+	ListBloodRequestsByClinic(ctx context.Context, arg ListBloodRequestsByClinicParams) ([]ListBloodRequestsByClinicRow, error)
 	// Staff of a clinic with their account details (system_admin / clinic_admin view).
 	ListClinicMembers(ctx context.Context, clinicID int64) ([]ListClinicMembersRow, error)
 	// System-admin clinic directory.
 	ListClinics(ctx context.Context) ([]ListClinicsRow, error)
 	// Donor-side view: "my matches" with the request context they need to respond.
-	ListMatchesForDonor(ctx context.Context, donorUserID int64) ([]ListMatchesForDonorRow, error)
+	ListMatchesForDonor(ctx context.Context, arg ListMatchesForDonorParams) ([]ListMatchesForDonorRow, error)
 	// Clinic-side view: matched donors for a request with contact details, nearest
 	// first, so staff can follow up.
-	ListMatchesForRequest(ctx context.Context, requestID int64) ([]ListMatchesForRequestRow, error)
+	ListMatchesForRequest(ctx context.Context, arg ListMatchesForRequestParams) ([]ListMatchesForRequestRow, error)
 	// The clinic_admin approval queue (FR-06): requests awaiting a decision.
 	ListPendingBloodRequestsByClinic(ctx context.Context, clinicID int64) ([]ListPendingBloodRequestsByClinicRow, error)
 	ListPushTokensForUser(ctx context.Context, userID int64) ([]PushToken, error)

@@ -223,7 +223,14 @@ SELECT id, clinic_id, created_by, blood_type, units_needed, urgency, status,
 FROM blood_requests
 WHERE clinic_id = $1
 ORDER BY created_at DESC
+LIMIT $3 OFFSET $2
 `
+
+type ListBloodRequestsByClinicParams struct {
+	ClinicID  int64 `json:"clinic_id"`
+	RowOffset int32 `json:"row_offset"`
+	RowLimit  int32 `json:"row_limit"`
+}
 
 type ListBloodRequestsByClinicRow struct {
 	ID          int64              `json:"id"`
@@ -244,8 +251,8 @@ type ListBloodRequestsByClinicRow struct {
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 }
 
-func (q *Queries) ListBloodRequestsByClinic(ctx context.Context, clinicID int64) ([]ListBloodRequestsByClinicRow, error) {
-	rows, err := q.db.Query(ctx, listBloodRequestsByClinic, clinicID)
+func (q *Queries) ListBloodRequestsByClinic(ctx context.Context, arg ListBloodRequestsByClinicParams) ([]ListBloodRequestsByClinicRow, error) {
+	rows, err := q.db.Query(ctx, listBloodRequestsByClinic, arg.ClinicID, arg.RowOffset, arg.RowLimit)
 	if err != nil {
 		return nil, err
 	}

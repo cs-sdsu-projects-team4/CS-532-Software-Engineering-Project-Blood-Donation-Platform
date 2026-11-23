@@ -158,6 +158,16 @@ func (f *fakeStore) ApproveBloodRequest(_ context.Context, arg store.ApproveBloo
 	return store.ApproveBloodRequestRow(row), nil
 }
 
+func (f *fakeStore) SetBloodRequestStatus(_ context.Context, arg store.SetBloodRequestStatusParams) (store.SetBloodRequestStatusRow, error) {
+	row, ok := f.requests[arg.ID]
+	if !ok {
+		return store.SetBloodRequestStatusRow{}, pgx.ErrNoRows
+	}
+	row.Status = arg.Status
+	f.requests[arg.ID] = row
+	return store.SetBloodRequestStatusRow(row), nil
+}
+
 func (f *fakeStore) MatchRequestDonors(_ context.Context, arg store.MatchRequestDonorsParams) ([]store.DonorMatch, error) {
 	out := make([]store.DonorMatch, f.matchCount)
 	for i := range out {
