@@ -45,11 +45,18 @@ func newTestEnv(t *testing.T) *testEnv {
 	fake.profiles[1] = store.GetDonorProfileRow{
 		UserID: 1, BloodType: "O+", IsAgeEligible: true, IsAvailable: true, TravelRadiusM: 10000,
 	}
-	// A clinic admin user id 2 (no donor profile).
+	// A clinic admin user id 2 and a clinic employee user id 3, both staffing
+	// clinic 100 (no donor profiles).
 	fake.addUser(store.User{
 		ID: 2, Email: "admin@clinic.example", PasswordHash: hash,
 		Role: store.UserRoleClinicAdmin, FullName: "Avery Admin",
 	})
+	fake.addUser(store.User{
+		ID: 3, Email: "staff@clinic.example", PasswordHash: hash,
+		Role: store.UserRoleClinicEmployee, FullName: "Erin Employee",
+	})
+	fake.memberships[2] = store.ClinicMember{ID: 1, ClinicID: 100, UserID: 2, Role: store.UserRoleClinicAdmin}
+	fake.memberships[3] = store.ClinicMember{ID: 2, ClinicID: 100, UserID: 3, Role: store.UserRoleClinicEmployee}
 
 	api := &apiHandler{queries: fake, pool: nil, tokens: tm, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
 
@@ -99,6 +106,15 @@ func (e *testEnv) donorToken(t *testing.T) string {
 func (e *testEnv) adminToken(t *testing.T) string {
 	t.Helper()
 	p, err := e.tokens.IssuePair(2, auth.RoleClinicAdmin)
+	if err != nil {
+		t.Fatalf("issue: %v", err)
+	}
+	return p.AccessToken
+}
+
+func (e *testEnv) employeeToken(t *testing.T) string {
+	t.Helper()
+	p, err := e.tokens.IssuePair(3, auth.RoleClinicEmployee)
 	if err != nil {
 		t.Fatalf("issue: %v", err)
 	}

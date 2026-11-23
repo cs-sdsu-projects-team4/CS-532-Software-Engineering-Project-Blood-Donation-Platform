@@ -10,6 +10,25 @@ import (
 
 type Querier interface {
 	AddClinicMember(ctx context.Context, arg AddClinicMemberParams) (ClinicMember, error)
+	// The approval gate (FR-06). The status guard makes this idempotent and safe:
+	// only a still-pending request transitions, and matching may run only afterward.
+	ApproveBloodRequest(ctx context.Context, arg ApproveBloodRequestParams) (ApproveBloodRequestRow, error)
+	// Explicit SQL for the append-only activity log (FR-13). actor_user_id is null for
+	// system actions (e.g. the matching worker); entity_type/entity_id point at the
+	// affected row; metadata carries action-specific detail as JSONB.
+	CreateActivityLog(ctx context.Context, arg CreateActivityLogParams) (ActivityLog, error)
+	// Explicit SQL for appointments (FR-11). The partial unique indexes on
+	// (donor_user_id, scheduled_at) and (clinic_id, scheduled_at) WHERE
+	// status='scheduled' enforce no double-booking at the DB level; CreateAppointment
+	// surfaces a unique-violation the handler maps to 409 Conflict.
+	CreateAppointment(ctx context.Context, arg CreateAppointmentParams) (Appointment, error)
+	// Explicit SQL for blood_requests. latitude/longitude are the request's own
+	// nullable coordinates; when omitted they (and the derived PostGIS `location`)
+	// default to the owning clinic's position, set in the same write so they never
+	// drift. Reads return the plain lat/lng columns, never the geography. A request
+	// stays pending_approval until a clinic_admin approves it (FR-06); only approved
+	// requests are matched.
+	CreateBloodRequest(ctx context.Context, arg CreateBloodRequestParams) (CreateBloodRequestRow, error)
 	// Explicit SQL for clinics and clinic membership. latitude/longitude are plain
 	// nullable columns; the PostGIS `location` geography is derived from them in the
 	// same write. Clinic creation and staff assignment are system_admin actions;
@@ -26,19 +45,58 @@ type Querier interface {
 	// Explicit SQL for the `users` table. sqlc reads these annotations and generates
 	// type-safe Go into internal/store. Never hand-edit the generated output.
 	CreateUser(ctx context.Context, arg CreateUserParams) (CreateUserRow, error)
+	DeletePushToken(ctx context.Context, arg DeletePushTokenParams) error
 	EmailExists(ctx context.Context, email string) (bool, error)
+	GetAppointment(ctx context.Context, id int64) (Appointment, error)
+	GetBloodRequest(ctx context.Context, id int64) (GetBloodRequestRow, error)
 	GetClinic(ctx context.Context, id int64) (GetClinicRow, error)
 	// Returns the clinic a staff user belongs to and their clinic role. Used by the
 	// clinic RBAC checks; a user staffs at most one clinic in the MVP.
 	GetClinicMembershipByUser(ctx context.Context, userID int64) (ClinicMember, error)
+	GetDonorMatch(ctx context.Context, id int64) (DonorMatch, error)
 	GetDonorProfile(ctx context.Context, userID int64) (GetDonorProfileRow, error)
 	GetLatestScreeningResponse(ctx context.Context, donorUserID int64) (ScreeningResponse, error)
 	// Used by login; this is the ONE place password_hash is read out.
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id int64) (GetUserByIDRow, error)
+	ListActivityLogsForEntity(ctx context.Context, arg ListActivityLogsForEntityParams) ([]ActivityLog, error)
+	ListAppointmentsForClinic(ctx context.Context, clinicID int64) ([]Appointment, error)
+	ListAppointmentsForDonor(ctx context.Context, donorUserID int64) ([]Appointment, error)
+	ListBloodRequestsByClinic(ctx context.Context, clinicID int64) ([]ListBloodRequestsByClinicRow, error)
+	// Donor-side view: "my matches" with the request context they need to respond.
+	ListMatchesForDonor(ctx context.Context, donorUserID int64) ([]ListMatchesForDonorRow, error)
+	// Clinic-side view: matched donors for a request with contact details, nearest
+	// first, so staff can follow up.
+	ListMatchesForRequest(ctx context.Context, requestID int64) ([]ListMatchesForRequestRow, error)
+	// The clinic_admin approval queue (FR-06): requests awaiting a decision.
+	ListPendingBloodRequestsByClinic(ctx context.Context, clinicID int64) ([]ListPendingBloodRequestsByClinicRow, error)
+	ListPushTokensForUser(ctx context.Context, userID int64) ([]PushToken, error)
+	// Explicit SQL for donor_matches — the output of the deterministic matching
+	// pipeline (FR-07/08) and the donor's accept/decline surface (FR-10).
+	// The pipeline's DB step: for an APPROVED request, record a match for every
+	// eligible donor within its radius. Blood compatibility is resolved in Go
+	// (domain.CompatibleDonorTypes) and passed as the allowed donor types, so the
+	// authoritative matrix stays in one place. DB-level filters: available,
+	// age-eligible, compatible type, not a recent donor, no flagged latest screening
+	// (FR-04), and within radius via PostGIS ST_DWithin. distance_m is captured now
+	// so results stay stable. ON CONFLICT keeps a donor to one match per request, so
+	// re-running is safe.
+	MatchRequestDonors(ctx context.Context, arg MatchRequestDonorsParams) ([]DonorMatch, error)
+	// Donor accepts/declines (FR-10). Guards ensure only the owning donor can respond
+	// and only from the 'notified' state, so a response can't be replayed or forged.
+	RespondToMatch(ctx context.Context, arg RespondToMatchParams) (DonorMatch, error)
+	// Cancel/complete/no_show. Cancelling frees the slot (it leaves the partial
+	// unique index), so the time can be rebooked.
+	SetAppointmentStatus(ctx context.Context, arg SetAppointmentStatusParams) (Appointment, error)
+	// Generic status transition for terminal states (fulfilled/cancelled/expired).
+	SetBloodRequestStatus(ctx context.Context, arg SetBloodRequestStatusParams) (SetBloodRequestStatusRow, error)
 	// Full replace of the mutable fields (FR-02). The handler loads the current row,
 	// applies the request patch, and writes the complete new state back.
 	UpdateDonorProfile(ctx context.Context, arg UpdateDonorProfileParams) (UpdateDonorProfileRow, error)
+	// Explicit SQL for push_tokens (FR-09). FCM device tokens the backend worker uses
+	// to notify donors. A token is globally unique; re-registering an existing token
+	// just re-points it at the current user/platform.
+	UpsertPushToken(ctx context.Context, arg UpsertPushTokenParams) (PushToken, error)
 }
 
 var _ Querier = (*Queries)(nil)

@@ -11,13 +11,20 @@ import (
 
 // fakeStore is an in-memory store.Querier for handler tests, so we can exercise
 // the HTTP layer (validation, auth, RBAC, response shapes) without a database.
-// Only the methods the non-transactional handlers call are implemented with real
-// behavior; the rest are stubs (register uses a pgx transaction, not this).
+// Only the methods the non-transactional handlers under test call are implemented
+// with real behavior. The embedded store.Querier satisfies the rest of the
+// interface; any unimplemented method panics if a test unexpectedly calls it,
+// which keeps this fake from breaking the build every time a query is added.
 type fakeStore struct {
+	store.Querier
 	usersByEmail map[string]store.User
 	usersByID    map[int64]store.User
 	profiles     map[int64]store.GetDonorProfileRow
 	screenings   map[int64][]store.ScreeningResponse
+	memberships  map[int64]store.ClinicMember
+	requests     map[int64]store.GetBloodRequestRow
+	nextReqID    int64
+	matchCount   int // how many matches MatchRequestDonors returns
 }
 
 var _ store.Querier = (*fakeStore)(nil)
@@ -28,6 +35,8 @@ func newFakeStore() *fakeStore {
 		usersByID:    map[int64]store.User{},
 		profiles:     map[int64]store.GetDonorProfileRow{},
 		screenings:   map[int64][]store.ScreeningResponse{},
+		memberships:  map[int64]store.ClinicMember{},
+		requests:     map[int64]store.GetBloodRequestRow{},
 	}
 }
 
@@ -100,24 +109,64 @@ func (f *fakeStore) GetLatestScreeningResponse(_ context.Context, donorUserID in
 	return rows[len(rows)-1], nil
 }
 
-// --- stubs (not reached by the handlers under test) ---
+// --- requests, matching & notifications (PR3) ---
 
-func (f *fakeStore) CreateUser(context.Context, store.CreateUserParams) (store.CreateUserRow, error) {
-	return store.CreateUserRow{}, pgx.ErrNoRows
+func (f *fakeStore) GetClinicMembershipByUser(_ context.Context, userID int64) (store.ClinicMember, error) {
+	m, ok := f.memberships[userID]
+	if !ok {
+		return store.ClinicMember{}, pgx.ErrNoRows
+	}
+	return m, nil
 }
-func (f *fakeStore) CreateDonorProfile(context.Context, store.CreateDonorProfileParams) (store.CreateDonorProfileRow, error) {
-	return store.CreateDonorProfileRow{}, pgx.ErrNoRows
+
+func (f *fakeStore) CreateBloodRequest(_ context.Context, arg store.CreateBloodRequestParams) (store.CreateBloodRequestRow, error) {
+	f.nextReqID++
+	row := store.GetBloodRequestRow{
+		ID:          f.nextReqID,
+		ClinicID:    arg.ClinicID,
+		CreatedBy:   arg.CreatedBy,
+		BloodType:   arg.BloodType,
+		UnitsNeeded: arg.UnitsNeeded,
+		Urgency:     arg.Urgency,
+		Status:      store.RequestStatusPendingApproval,
+		RadiusM:     arg.RadiusM,
+	}
+	f.requests[row.ID] = row
+	return store.CreateBloodRequestRow(row), nil
 }
-func (f *fakeStore) EmailExists(context.Context, string) (bool, error) { return false, nil }
-func (f *fakeStore) CreateClinic(context.Context, store.CreateClinicParams) (store.CreateClinicRow, error) {
-	return store.CreateClinicRow{}, pgx.ErrNoRows
+
+func (f *fakeStore) GetBloodRequest(_ context.Context, id int64) (store.GetBloodRequestRow, error) {
+	row, ok := f.requests[id]
+	if !ok {
+		return store.GetBloodRequestRow{}, pgx.ErrNoRows
+	}
+	return row, nil
 }
-func (f *fakeStore) GetClinic(context.Context, int64) (store.GetClinicRow, error) {
-	return store.GetClinicRow{}, pgx.ErrNoRows
+
+func (f *fakeStore) ApproveBloodRequest(_ context.Context, arg store.ApproveBloodRequestParams) (store.ApproveBloodRequestRow, error) {
+	row, ok := f.requests[arg.ID]
+	if !ok || row.Status != store.RequestStatusPendingApproval {
+		// Mirrors the SQL status guard: only a pending request transitions.
+		return store.ApproveBloodRequestRow{}, pgx.ErrNoRows
+	}
+	row.Status = store.RequestStatusApproved
+	row.ApprovedBy = arg.ApprovedBy
+	f.requests[arg.ID] = row
+	return store.ApproveBloodRequestRow(row), nil
 }
-func (f *fakeStore) AddClinicMember(context.Context, store.AddClinicMemberParams) (store.ClinicMember, error) {
-	return store.ClinicMember{}, pgx.ErrNoRows
+
+func (f *fakeStore) MatchRequestDonors(_ context.Context, arg store.MatchRequestDonorsParams) ([]store.DonorMatch, error) {
+	out := make([]store.DonorMatch, f.matchCount)
+	for i := range out {
+		out[i] = store.DonorMatch{ID: int64(i + 1), RequestID: arg.RequestID, DonorUserID: int64(i + 1)}
+	}
+	return out, nil
 }
-func (f *fakeStore) GetClinicMembershipByUser(context.Context, int64) (store.ClinicMember, error) {
-	return store.ClinicMember{}, pgx.ErrNoRows
+
+func (f *fakeStore) CreateActivityLog(_ context.Context, _ store.CreateActivityLogParams) (store.ActivityLog, error) {
+	return store.ActivityLog{}, nil
+}
+
+func (f *fakeStore) ListPushTokensForUser(_ context.Context, _ int64) ([]store.PushToken, error) {
+	return nil, nil
 }
