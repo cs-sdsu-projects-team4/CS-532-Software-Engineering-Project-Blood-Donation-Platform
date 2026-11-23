@@ -66,6 +66,17 @@ func mountV1(r chi.Router, api *apiHandler, tokens *auth.TokenManager) {
 				r.Get("/screening/questions", api.getQuestionnaire)
 				r.Post("/screening", api.submitScreening)
 				r.Get("/screening/me", api.getMyScreening)
+
+				// Matches & scheduling for the donor (FR-10, FR-11).
+				r.Get("/donor/matches", api.listMyMatches)
+				r.Post("/donor/matches/{id}/respond", api.respondToMatch)
+				r.Post("/donor/matches/{id}/appointment", api.bookAppointment)
+				r.Get("/donor/appointments", api.listMyAppointments)
+				r.Patch("/donor/appointments/{id}", api.cancelMyAppointment)
+
+				// FCM device-token registration for push notifications (FR-09).
+				r.Post("/donor/push-tokens", api.registerPushToken)
+				r.Delete("/donor/push-tokens", api.unregisterPushToken)
 			})
 
 			// Clinic-staff area: creating and viewing blood requests (FR-05).
@@ -77,6 +88,10 @@ func mountV1(r chi.Router, api *apiHandler, tokens *auth.TokenManager) {
 				r.Get("/requests", api.listClinicRequests)
 				r.Get("/requests/{id}", api.getRequest)
 				r.Get("/requests/{id}/matches", api.listRequestMatches)
+
+				// Clinic-side appointment views and outcomes (FR-11).
+				r.Get("/appointments", api.listClinicAppointments)
+				r.Patch("/appointments/{id}", api.updateClinicAppointment)
 
 				// The approval gate is clinic_admin-only (FR-06). A request must
 				// be approved before any donor is matched/notified.

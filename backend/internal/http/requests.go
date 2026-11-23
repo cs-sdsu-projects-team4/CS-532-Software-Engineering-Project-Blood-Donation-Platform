@@ -10,6 +10,7 @@ import (
 	"github.com/blood-donation/backend/internal/auth"
 	"github.com/blood-donation/backend/internal/domain"
 	"github.com/blood-donation/backend/internal/matching"
+	"github.com/blood-donation/backend/internal/notify"
 	"github.com/blood-donation/backend/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -185,6 +186,14 @@ func (h *apiHandler) approveRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.logActivity(r.Context(), id.UserID, "request.approved", "blood_request", approved.ID, nil)
+
+	// Notify matched donors (FR-09), best-effort — never fails the approval.
+	h.notifyMatchedDonors(r.Context(), matches, notify.Notification{
+		Title: "Blood donation request",
+		Body:  "A nearby clinic needs " + approved.BloodType + " blood. Open the app to respond.",
+		Data:  map[string]string{"request_id": strconv.FormatInt(approved.ID, 10)},
+	})
+
 	writeJSON(w, http.StatusOK, approveResponse{
 		Request:      toRequestResponse(store.GetBloodRequestRow(approved)),
 		MatchedCount: len(matches),
