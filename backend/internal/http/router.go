@@ -67,6 +67,24 @@ func mountV1(r chi.Router, api *apiHandler, tokens *auth.TokenManager) {
 				r.Post("/screening", api.submitScreening)
 				r.Get("/screening/me", api.getMyScreening)
 			})
+
+			// Clinic-staff area: creating and viewing blood requests (FR-05).
+			// Membership (which clinic) is resolved per-request in the handlers.
+			r.Group(func(r chi.Router) {
+				r.Use(auth.RequireRole(auth.RoleClinicEmployee, auth.RoleClinicAdmin))
+
+				r.Post("/requests", api.createRequest)
+				r.Get("/requests", api.listClinicRequests)
+				r.Get("/requests/{id}", api.getRequest)
+				r.Get("/requests/{id}/matches", api.listRequestMatches)
+
+				// The approval gate is clinic_admin-only (FR-06). A request must
+				// be approved before any donor is matched/notified.
+				r.Group(func(r chi.Router) {
+					r.Use(auth.RequireRole(auth.RoleClinicAdmin))
+					r.Post("/requests/{id}/approve", api.approveRequest)
+				})
+			})
 		})
 	})
 }
