@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Blood Donation Coordination API
-  version: 0.4.0
+  version: 0.5.0
   description: >
     REST contract for the Blood Donation Coordination App. Covers the
     account/access foundation (donor registration, JWT auth, profiles, screening —
@@ -282,11 +282,56 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
 
+  /api/v1/requests/{id}/cancel:
+    post:
+      tags: [requests]
+      summary: Cancel a request (clinic staff)
+      description: Allowed from pending_approval or approved; terminal states return 409.
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      responses:
+        "200":
+          description: Updated request
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BloodRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Request cannot be cancelled in its current state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/v1/requests/{id}/fulfill:
+    post:
+      tags: [requests]
+      summary: Mark a request fulfilled (clinic staff)
+      description: Allowed only from the approved state; otherwise 409.
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      responses:
+        "200":
+          description: Updated request
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BloodRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Request is not in a fulfillable state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
   /api/v1/requests/{id}/matches:
     get:
       tags: [matches]
       summary: Donors matched to a request, with contact details
-      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      parameters:
+        - { $ref: "#/components/parameters/IdParam" }
+        - { $ref: "#/components/parameters/LimitParam" }
+        - { $ref: "#/components/parameters/OffsetParam" }
       responses:
         "200":
           description: Matches (nearest first)
@@ -626,6 +671,18 @@ components:
       required: true
       description: Positive integer resource id
       schema: { type: integer, format: int64, minimum: 1 }
+    LimitParam:
+      name: limit
+      in: query
+      required: false
+      description: Max rows to return (default 50, max 200)
+      schema: { type: integer, default: 50, minimum: 1, maximum: 200 }
+    OffsetParam:
+      name: offset
+      in: query
+      required: false
+      description: Rows to skip for pagination (default 0)
+      schema: { type: integer, default: 0, minimum: 0 }
 
   schemas:
     Error:
