@@ -1,13 +1,15 @@
 openapi: 3.0.3
 info:
   title: Blood Donation Coordination API
-  version: 0.2.0
+  version: 0.3.0
   description: >
-    REST contract for the Blood Donation Coordination App. This revision covers
-    the account/access foundation: donor registration, authentication
-    (JWT access/refresh), the authenticated account view, donor profile
-    management, and preliminary screening (FR-01, FR-02, FR-03, FR-04, FR-12).
-    Request and matching endpoints arrive in a later revision.
+    REST contract for the Blood Donation Coordination App. Covers the
+    account/access foundation (donor registration, JWT auth, profiles, screening —
+    FR-01..04, FR-12) and the request/matching workflow: clinic blood requests
+    with a clinic_admin approval gate (FR-05/06), the deterministic matching
+    pipeline (FR-07/08), push notifications (FR-09), donor accept/decline (FR-10),
+    appointment scheduling with no double-booking (FR-11), and the audit log
+    (FR-13).
 servers:
   - url: http://localhost:8080
     description: Local development
@@ -17,6 +19,10 @@ tags:
   - name: auth
   - name: donor
   - name: screening
+  - name: requests
+  - name: matches
+  - name: appointments
+  - name: notifications
 
 paths:
   /healthz:
@@ -200,6 +206,264 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /api/v1/requests:
+    post:
+      tags: [requests]
+      summary: Create a blood request (FR-05)
+      description: >
+        Clinic staff (clinic_employee or clinic_admin) create a request for their
+        own clinic. It starts at pending_approval and is not matched until a
+        clinic_admin approves it. blood_type must be one of the 8 concrete types.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateRequest" }
+      responses:
+        "201":
+          description: Request created (pending approval)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BloodRequest" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    get:
+      tags: [requests]
+      summary: List the caller's clinic's requests
+      responses:
+        "200":
+          description: Requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/BloodRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/requests/{id}:
+    get:
+      tags: [requests]
+      summary: Get one request owned by the caller's clinic
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      responses:
+        "200":
+          description: Request
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BloodRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/requests/{id}/approve:
+    post:
+      tags: [requests]
+      summary: Approve a request and run matching (FR-06)
+      description: >
+        clinic_admin only. Flips the request to approved and runs the
+        deterministic matching pipeline, returning the number of donors matched.
+        Approving a request that is not pending returns 409.
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      responses:
+        "200":
+          description: Approved, with matched count
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApproveResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Request is not pending approval
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/v1/requests/{id}/matches:
+    get:
+      tags: [matches]
+      summary: Donors matched to a request, with contact details
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      responses:
+        "200":
+          description: Matches (nearest first)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/RequestMatch" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/donor/matches:
+    get:
+      tags: [matches]
+      summary: The caller's matches with request context (FR-10)
+      responses:
+        "200":
+          description: Matches
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/DonorMatch" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/donor/matches/{id}/respond:
+    post:
+      tags: [matches]
+      summary: Accept or decline a match (FR-10)
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RespondRequest" }
+      responses:
+        "200":
+          description: Response recorded
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409":
+          description: Match is not awaiting a response
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/v1/donor/matches/{id}/appointment:
+    post:
+      tags: [appointments]
+      summary: Book an appointment for an accepted match (FR-11)
+      description: >
+        The donor must have accepted the match. The chosen slot is rejected with
+        409 if it double-books the donor or the clinic.
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BookRequest" }
+      responses:
+        "201":
+          description: Appointment booked
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Appointment" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Slot taken or match not accepted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/v1/donor/appointments:
+    get:
+      tags: [appointments]
+      summary: The caller's appointments
+      responses:
+        "200":
+          description: Appointments
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Appointment" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/donor/appointments/{id}:
+    patch:
+      tags: [appointments]
+      summary: Cancel the caller's appointment
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      responses:
+        "200":
+          description: Updated appointment
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Appointment" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/appointments:
+    get:
+      tags: [appointments]
+      summary: Appointments at the caller's clinic (clinic staff)
+      responses:
+        "200":
+          description: Appointments
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Appointment" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/appointments/{id}:
+    patch:
+      tags: [appointments]
+      summary: Record an appointment outcome (clinic staff)
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AppointmentStatusUpdate" }
+      responses:
+        "200":
+          description: Updated appointment
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Appointment" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/donor/push-tokens:
+    post:
+      tags: [notifications]
+      summary: Register an FCM device token (FR-09)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PushTokenRequest" }
+      responses:
+        "201":
+          description: Token registered
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    delete:
+      tags: [notifications]
+      summary: Unregister a device token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string }
+      responses:
+        "204":
+          description: Token removed
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -230,6 +494,14 @@ components:
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
+
+  parameters:
+    IdParam:
+      name: id
+      in: path
+      required: true
+      description: Positive integer resource id
+      schema: { type: integer, format: int64, minimum: 1 }
 
   schemas:
     Error:
@@ -331,6 +603,117 @@ components:
           type: array
           items: { type: string }
         submitted_at: { type: string, format: date-time }
+
+    ConcreteBloodType:
+      type: string
+      description: The 8 concrete red-cell types; requests never use "unknown".
+      enum: ["O-","O+","A-","A+","B-","B+","AB-","AB+"]
+    RequestStatus:
+      type: string
+      enum: [pending_approval, approved, fulfilled, cancelled, expired]
+    MatchStatus:
+      type: string
+      enum: [notified, accepted, declined, expired]
+    AppointmentStatus:
+      type: string
+      enum: [scheduled, completed, cancelled, no_show]
+
+    CreateRequest:
+      type: object
+      required: [blood_type, units_needed]
+      properties:
+        blood_type: { $ref: "#/components/schemas/ConcreteBloodType" }
+        units_needed: { type: integer, minimum: 1 }
+        urgency: { type: string, enum: [routine, urgent, critical], default: routine }
+        radius_m: { type: integer, default: 10000 }
+        latitude: { type: number, format: double, description: defaults to the clinic's location }
+        longitude: { type: number, format: double }
+        notes: { type: string }
+        needed_by: { type: string, format: date-time }
+    BloodRequest:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        clinic_id: { type: integer, format: int64 }
+        created_by: { type: integer, format: int64 }
+        blood_type: { $ref: "#/components/schemas/ConcreteBloodType" }
+        units_needed: { type: integer }
+        urgency: { type: string }
+        status: { $ref: "#/components/schemas/RequestStatus" }
+        approved_by: { type: integer, format: int64, nullable: true }
+        approved_at: { type: string, format: date-time, nullable: true }
+        radius_m: { type: integer }
+        latitude: { type: number, format: double, nullable: true }
+        longitude: { type: number, format: double, nullable: true }
+        notes: { type: string, nullable: true }
+        needed_by: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    ApproveResponse:
+      type: object
+      properties:
+        request: { $ref: "#/components/schemas/BloodRequest" }
+        matched_count: { type: integer, description: donors matched by the pipeline }
+    RequestMatch:
+      type: object
+      description: A matched donor from the clinic's perspective (with contact info).
+      properties:
+        id: { type: integer, format: int64 }
+        donor_user_id: { type: integer, format: int64 }
+        distance_m: { type: number, format: double, nullable: true }
+        status: { $ref: "#/components/schemas/MatchStatus" }
+        notified_at: { type: string, format: date-time, nullable: true }
+        responded_at: { type: string, format: date-time, nullable: true }
+        full_name: { type: string }
+        email: { type: string, format: email }
+        phone: { type: string, nullable: true }
+    DonorMatch:
+      type: object
+      description: A match from the donor's perspective (with request context).
+      properties:
+        id: { type: integer, format: int64 }
+        request_id: { type: integer, format: int64 }
+        distance_m: { type: number, format: double, nullable: true }
+        status: { $ref: "#/components/schemas/MatchStatus" }
+        notified_at: { type: string, format: date-time, nullable: true }
+        responded_at: { type: string, format: date-time, nullable: true }
+        blood_type: { $ref: "#/components/schemas/ConcreteBloodType" }
+        urgency: { type: string }
+        needed_by: { type: string, format: date-time, nullable: true }
+        clinic_id: { type: integer, format: int64 }
+        clinic_name: { type: string }
+    RespondRequest:
+      type: object
+      required: [decision]
+      properties:
+        decision: { type: string, enum: [accept, decline] }
+    BookRequest:
+      type: object
+      required: [scheduled_at]
+      properties:
+        scheduled_at: { type: string, format: date-time }
+    Appointment:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        request_id: { type: integer, format: int64 }
+        donor_user_id: { type: integer, format: int64 }
+        clinic_id: { type: integer, format: int64 }
+        scheduled_at: { type: string, format: date-time }
+        status: { $ref: "#/components/schemas/AppointmentStatus" }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    AppointmentStatusUpdate:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [completed, no_show, cancelled] }
+    PushTokenRequest:
+      type: object
+      required: [token, platform]
+      properties:
+        token: { type: string }
+        platform: { type: string, enum: [android, ios, web] }
 
 security:
   - bearerAuth: []
