@@ -11,6 +11,139 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AppointmentStatus string
+
+const (
+	AppointmentStatusScheduled AppointmentStatus = "scheduled"
+	AppointmentStatusCompleted AppointmentStatus = "completed"
+	AppointmentStatusCancelled AppointmentStatus = "cancelled"
+	AppointmentStatusNoShow    AppointmentStatus = "no_show"
+)
+
+func (e *AppointmentStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = AppointmentStatus(s)
+	case string:
+		*e = AppointmentStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for AppointmentStatus: %T", src)
+	}
+	return nil
+}
+
+type NullAppointmentStatus struct {
+	AppointmentStatus AppointmentStatus `json:"appointment_status"`
+	Valid             bool              `json:"valid"` // Valid is true if AppointmentStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullAppointmentStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.AppointmentStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.AppointmentStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullAppointmentStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.AppointmentStatus), nil
+}
+
+type MatchStatus string
+
+const (
+	MatchStatusNotified MatchStatus = "notified"
+	MatchStatusAccepted MatchStatus = "accepted"
+	MatchStatusDeclined MatchStatus = "declined"
+	MatchStatusExpired  MatchStatus = "expired"
+)
+
+func (e *MatchStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = MatchStatus(s)
+	case string:
+		*e = MatchStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for MatchStatus: %T", src)
+	}
+	return nil
+}
+
+type NullMatchStatus struct {
+	MatchStatus MatchStatus `json:"match_status"`
+	Valid       bool        `json:"valid"` // Valid is true if MatchStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullMatchStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.MatchStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.MatchStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullMatchStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.MatchStatus), nil
+}
+
+type RequestStatus string
+
+const (
+	RequestStatusPendingApproval RequestStatus = "pending_approval"
+	RequestStatusApproved        RequestStatus = "approved"
+	RequestStatusFulfilled       RequestStatus = "fulfilled"
+	RequestStatusCancelled       RequestStatus = "cancelled"
+	RequestStatusExpired         RequestStatus = "expired"
+)
+
+func (e *RequestStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = RequestStatus(s)
+	case string:
+		*e = RequestStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for RequestStatus: %T", src)
+	}
+	return nil
+}
+
+type NullRequestStatus struct {
+	RequestStatus RequestStatus `json:"request_status"`
+	Valid         bool          `json:"valid"` // Valid is true if RequestStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullRequestStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.RequestStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.RequestStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullRequestStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.RequestStatus), nil
+}
+
 type UserRole string
 
 const (
@@ -55,6 +188,47 @@ func (ns NullUserRole) Value() (driver.Value, error) {
 	return string(ns.UserRole), nil
 }
 
+type ActivityLog struct {
+	ID          int64              `json:"id"`
+	ActorUserID pgtype.Int8        `json:"actor_user_id"`
+	Action      string             `json:"action"`
+	EntityType  pgtype.Text        `json:"entity_type"`
+	EntityID    pgtype.Int8        `json:"entity_id"`
+	Metadata    []byte             `json:"metadata"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
+type Appointment struct {
+	ID          int64              `json:"id"`
+	RequestID   int64              `json:"request_id"`
+	DonorUserID int64              `json:"donor_user_id"`
+	ClinicID    int64              `json:"clinic_id"`
+	ScheduledAt pgtype.Timestamptz `json:"scheduled_at"`
+	Status      AppointmentStatus  `json:"status"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
+type BloodRequest struct {
+	ID          int64              `json:"id"`
+	ClinicID    int64              `json:"clinic_id"`
+	CreatedBy   int64              `json:"created_by"`
+	BloodType   string             `json:"blood_type"`
+	UnitsNeeded int32              `json:"units_needed"`
+	Urgency     string             `json:"urgency"`
+	Status      RequestStatus      `json:"status"`
+	ApprovedBy  pgtype.Int8        `json:"approved_by"`
+	ApprovedAt  pgtype.Timestamptz `json:"approved_at"`
+	RadiusM     int32              `json:"radius_m"`
+	Latitude    pgtype.Float8      `json:"latitude"`
+	Longitude   pgtype.Float8      `json:"longitude"`
+	Location    interface{}        `json:"location"`
+	Notes       pgtype.Text        `json:"notes"`
+	NeededBy    pgtype.Timestamptz `json:"needed_by"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
 type Clinic struct {
 	ID           int64              `json:"id"`
 	Name         string             `json:"name"`
@@ -76,6 +250,17 @@ type ClinicMember struct {
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
+type DonorMatch struct {
+	ID          int64              `json:"id"`
+	RequestID   int64              `json:"request_id"`
+	DonorUserID int64              `json:"donor_user_id"`
+	DistanceM   pgtype.Float8      `json:"distance_m"`
+	Status      MatchStatus        `json:"status"`
+	NotifiedAt  pgtype.Timestamptz `json:"notified_at"`
+	RespondedAt pgtype.Timestamptz `json:"responded_at"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
 type DonorProfile struct {
 	UserID           int64              `json:"user_id"`
 	BloodType        string             `json:"blood_type"`
@@ -88,6 +273,15 @@ type DonorProfile struct {
 	LastDonationDate pgtype.Date        `json:"last_donation_date"`
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+}
+
+type PushToken struct {
+	ID        int64              `json:"id"`
+	UserID    int64              `json:"user_id"`
+	Token     string             `json:"token"`
+	Platform  string             `json:"platform"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
 type ScreeningResponse struct {

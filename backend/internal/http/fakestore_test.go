@@ -11,9 +11,12 @@ import (
 
 // fakeStore is an in-memory store.Querier for handler tests, so we can exercise
 // the HTTP layer (validation, auth, RBAC, response shapes) without a database.
-// Only the methods the non-transactional handlers call are implemented with real
-// behavior; the rest are stubs (register uses a pgx transaction, not this).
+// Only the methods the non-transactional handlers under test call are implemented
+// with real behavior. The embedded store.Querier satisfies the rest of the
+// interface; any unimplemented method panics if a test unexpectedly calls it,
+// which keeps this fake from breaking the build every time a query is added.
 type fakeStore struct {
+	store.Querier
 	usersByEmail map[string]store.User
 	usersByID    map[int64]store.User
 	profiles     map[int64]store.GetDonorProfileRow
@@ -98,26 +101,4 @@ func (f *fakeStore) GetLatestScreeningResponse(_ context.Context, donorUserID in
 		return store.ScreeningResponse{}, pgx.ErrNoRows
 	}
 	return rows[len(rows)-1], nil
-}
-
-// --- stubs (not reached by the handlers under test) ---
-
-func (f *fakeStore) CreateUser(context.Context, store.CreateUserParams) (store.CreateUserRow, error) {
-	return store.CreateUserRow{}, pgx.ErrNoRows
-}
-func (f *fakeStore) CreateDonorProfile(context.Context, store.CreateDonorProfileParams) (store.CreateDonorProfileRow, error) {
-	return store.CreateDonorProfileRow{}, pgx.ErrNoRows
-}
-func (f *fakeStore) EmailExists(context.Context, string) (bool, error) { return false, nil }
-func (f *fakeStore) CreateClinic(context.Context, store.CreateClinicParams) (store.CreateClinicRow, error) {
-	return store.CreateClinicRow{}, pgx.ErrNoRows
-}
-func (f *fakeStore) GetClinic(context.Context, int64) (store.GetClinicRow, error) {
-	return store.GetClinicRow{}, pgx.ErrNoRows
-}
-func (f *fakeStore) AddClinicMember(context.Context, store.AddClinicMemberParams) (store.ClinicMember, error) {
-	return store.ClinicMember{}, pgx.ErrNoRows
-}
-func (f *fakeStore) GetClinicMembershipByUser(context.Context, int64) (store.ClinicMember, error) {
-	return store.ClinicMember{}, pgx.ErrNoRows
 }
