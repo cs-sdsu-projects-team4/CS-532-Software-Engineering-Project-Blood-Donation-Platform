@@ -20,6 +20,12 @@ import (
 // validUrgencies is the fixed set a request may declare.
 var validUrgencies = map[string]bool{"routine": true, "urgent": true, "critical": true}
 
+// Sane upper bounds so a typo can't create an absurd request.
+const (
+	maxUnitsNeeded = 100
+	maxRadiusM     = 100_000 // 100 km
+)
+
 // createRequestBody is a clinic's new blood request (FR-05). latitude/longitude
 // are optional and default to the clinic's location; blood_type must be one of
 // the 8 concrete types (a request never names "unknown").
@@ -58,6 +64,10 @@ func (h *apiHandler) createRequest(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", "units_needed must be positive")
 		return
 	}
+	if req.UnitsNeeded > maxUnitsNeeded {
+		writeError(w, http.StatusBadRequest, "invalid_request", "units_needed is unreasonably large")
+		return
+	}
 	urgency := req.Urgency
 	if urgency == "" {
 		urgency = "routine"
@@ -74,12 +84,20 @@ func (h *apiHandler) createRequest(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", "radius_m must be positive")
 		return
 	}
+	if radius > maxRadiusM {
+		writeError(w, http.StatusBadRequest, "invalid_request", "radius_m must be at most 100000 (100 km)")
+		return
+	}
 	if msg, ok := checkLatLng(req.Latitude, req.Longitude); !ok {
 		writeError(w, http.StatusBadRequest, "invalid_request", msg)
 		return
 	}
 	neededBy, ok := parseOptionalTime(w, req.NeededBy)
 	if !ok {
+		return
+	}
+	if neededBy.Valid && neededBy.Time.Before(time.Now()) {
+		writeError(w, http.StatusBadRequest, "invalid_request", "needed_by must be in the future")
 		return
 	}
 
@@ -198,6 +216,57 @@ func (h *apiHandler) approveRequest(w http.ResponseWriter, r *http.Request) {
 		Request:      toRequestResponse(store.GetBloodRequestRow(approved)),
 		MatchedCount: len(matches),
 	})
+}
+
+// cancelRequest handles POST /api/v1/requests/{id}/cancel (clinic staff). A
+// request can be cancelled while it is still pending or approved; terminal states
+// (fulfilled/cancelled/expired) cannot transition → 409.
+func (h *apiHandler) cancelRequest(w http.ResponseWriter, r *http.Request) {
+	h.transitionRequest(w, r, store.RequestStatusCancelled, "request.cancelled",
+		map[store.RequestStatus]bool{
+			store.RequestStatusPendingApproval: true,
+			store.RequestStatusApproved:        true,
+		})
+}
+
+// fulfillRequest handles POST /api/v1/requests/{id}/fulfill (clinic staff). Only
+// an approved request can be fulfilled.
+func (h *apiHandler) fulfillRequest(w http.ResponseWriter, r *http.Request) {
+	h.transitionRequest(w, r, store.RequestStatusFulfilled, "request.fulfilled",
+		map[store.RequestStatus]bool{store.RequestStatusApproved: true})
+}
+
+// transitionRequest moves a clinic-owned request to `to`, but only from one of
+// the `allowedFrom` states, and records an activity entry. Shared by cancel/fulfill.
+func (h *apiHandler) transitionRequest(w http.ResponseWriter, r *http.Request, to store.RequestStatus, action string, allowedFrom map[store.RequestStatus]bool) {
+	actor, _ := auth.IdentityFromContext(r.Context())
+	member, ok := h.callerMembership(w, r)
+	if !ok {
+		return
+	}
+	reqID, ok := parseIDParam(w, r, "id")
+	if !ok {
+		return
+	}
+	row, ok := h.loadClinicRequest(w, r.Context(), reqID, member.ClinicID)
+	if !ok {
+		return
+	}
+	if !allowedFrom[row.Status] {
+		writeError(w, http.StatusConflict, "invalid_state",
+			"request cannot change to "+string(to)+" from its current state ("+string(row.Status)+")")
+		return
+	}
+	updated, err := h.queries.SetBloodRequestStatus(r.Context(), store.SetBloodRequestStatusParams{
+		Status: to,
+		ID:     reqID,
+	})
+	if err != nil {
+		h.serverError(w, "set request status", err)
+		return
+	}
+	h.logActivity(r.Context(), actor.UserID, action, "blood_request", reqID, nil)
+	writeJSON(w, http.StatusOK, toRequestResponse(store.GetBloodRequestRow(updated)))
 }
 
 // listRequestMatches handles GET /api/v1/requests/{id}/matches — the matched

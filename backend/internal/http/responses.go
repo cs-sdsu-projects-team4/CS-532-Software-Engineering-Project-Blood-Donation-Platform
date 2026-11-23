@@ -3,6 +3,7 @@ package http
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/blood-donation/backend/internal/auth"
 	"github.com/blood-donation/backend/internal/store"
@@ -115,6 +116,10 @@ func (h *apiHandler) bookAppointment(w http.ResponseWriter, r *http.Request) {
 	}
 	if !scheduledAt.Valid {
 		writeError(w, http.StatusBadRequest, "invalid_request", "scheduled_at is required")
+		return
+	}
+	if scheduledAt.Time.Before(time.Now()) {
+		writeError(w, http.StatusBadRequest, "invalid_request", "scheduled_at must be in the future")
 		return
 	}
 
