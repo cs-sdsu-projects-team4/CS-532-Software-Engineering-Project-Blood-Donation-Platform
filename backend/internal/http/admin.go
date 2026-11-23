@@ -92,7 +92,162 @@ func (h *apiHandler) getClinic(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, toClinicResponse(c))
 }
 
+// validStaffRoles are the roles a clinic member may hold. donor/system_admin are
+// not clinic staff and are rejected here.
+var validStaffRoles = map[string]bool{"clinic_employee": true, "clinic_admin": true}
+
+// createMemberBody provisions a clinic-staff account. The clinic/staff accounts
+// are created by a system_admin — they never self-register.
+type createMemberBody struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+	FullName string `json:"full_name"`
+	Phone    string `json:"phone"`
+	Role     string `json:"role"` // clinic_employee or clinic_admin
+}
+
+// createClinicMember handles POST /api/v1/admin/clinics/{id}/members (system_admin).
+// It creates the staff user AND the membership in one transaction so a failure
+// never leaves an account with no clinic (or vice versa).
+func (h *apiHandler) createClinicMember(w http.ResponseWriter, r *http.Request) {
+	actor, _ := auth.IdentityFromContext(r.Context())
+	clinicID, ok := parseIDParam(w, r, "id")
+	if !ok {
+		return
+	}
+	var body createMemberBody
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+
+	email, ok := validEmail(body.Email)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid_request", "a valid email is required")
+		return
+	}
+	if len(body.Password) < minPasswordLen {
+		writeError(w, http.StatusBadRequest, "invalid_request", "password must be at least 8 characters")
+		return
+	}
+	if strings.TrimSpace(body.FullName) == "" {
+		writeError(w, http.StatusBadRequest, "invalid_request", "full_name is required")
+		return
+	}
+	if !validStaffRoles[body.Role] {
+		writeError(w, http.StatusBadRequest, "invalid_request", "role must be clinic_employee or clinic_admin")
+		return
+	}
+
+	// The clinic must exist (clean 404 rather than a foreign-key error).
+	if _, err := h.queries.GetClinic(r.Context(), clinicID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "not_found", "clinic not found")
+			return
+		}
+		h.serverError(w, "get clinic", err)
+		return
+	}
+
+	hash, err := auth.HashPassword(body.Password)
+	if err != nil {
+		h.serverError(w, "hash password", err)
+		return
+	}
+
+	ctx := r.Context()
+	tx, err := h.pool.Begin(ctx)
+	if err != nil {
+		h.serverError(w, "begin tx", err)
+		return
+	}
+	defer tx.Rollback(ctx) // no-op after a successful commit
+	qtx := store.New(tx)
+
+	exists, err := qtx.EmailExists(ctx, email)
+	if err != nil {
+		h.serverError(w, "check email", err)
+		return
+	}
+	if exists {
+		writeError(w, http.StatusConflict, "email_taken", "an account with this email already exists")
+		return
+	}
+
+	role := store.UserRole(body.Role)
+	user, err := qtx.CreateUser(ctx, store.CreateUserParams{
+		Email:        email,
+		PasswordHash: hash,
+		Role:         role,
+		FullName:     strings.TrimSpace(body.FullName),
+		Phone:        optText(body.Phone),
+	})
+	if err != nil {
+		h.serverError(w, "create staff user", err)
+		return
+	}
+	member, err := qtx.AddClinicMember(ctx, store.AddClinicMemberParams{
+		ClinicID: clinicID,
+		UserID:   user.ID,
+		Role:     role,
+	})
+	if err != nil {
+		h.serverError(w, "add clinic member", err)
+		return
+	}
+	if err := tx.Commit(ctx); err != nil {
+		h.serverError(w, "commit tx", err)
+		return
+	}
+
+	h.logActivity(ctx, actor.UserID, "clinic.member_added", "clinic", clinicID, nil)
+	writeJSON(w, http.StatusCreated, clinicMemberResponse{
+		ID:        member.ID,
+		ClinicID:  member.ClinicID,
+		UserID:    user.ID,
+		Role:      string(user.Role),
+		FullName:  user.FullName,
+		Email:     user.Email,
+		CreatedAt: tsString(member.CreatedAt),
+	})
+}
+
+// listClinicMembers handles GET /api/v1/admin/clinics/{id}/members (system_admin).
+func (h *apiHandler) listClinicMembers(w http.ResponseWriter, r *http.Request) {
+	clinicID, ok := parseIDParam(w, r, "id")
+	if !ok {
+		return
+	}
+	rows, err := h.queries.ListClinicMembers(r.Context(), clinicID)
+	if err != nil {
+		h.serverError(w, "list clinic members", err)
+		return
+	}
+	out := make([]clinicMemberResponse, 0, len(rows))
+	for _, m := range rows {
+		out = append(out, clinicMemberResponse{
+			ID:        m.ID,
+			ClinicID:  m.ClinicID,
+			UserID:    m.UserID,
+			Role:      string(m.Role),
+			FullName:  m.FullName,
+			Email:     m.Email,
+			CreatedAt: tsString(m.CreatedAt),
+		})
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
 // --- response shapes ---
+
+type clinicMemberResponse struct {
+	ID        int64  `json:"id"`
+	ClinicID  int64  `json:"clinic_id"`
+	UserID    int64  `json:"user_id"`
+	Role      string `json:"role"`
+	FullName  string `json:"full_name"`
+	Email     string `json:"email"`
+	CreatedAt string `json:"created_at"`
+}
 
 type clinicResponse struct {
 	ID           int64    `json:"id"`
