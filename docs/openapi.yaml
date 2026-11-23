@@ -1,0 +1,336 @@
+openapi: 3.0.3
+info:
+  title: Blood Donation Coordination API
+  version: 0.2.0
+  description: >
+    REST contract for the Blood Donation Coordination App. This revision covers
+    the account/access foundation: donor registration, authentication
+    (JWT access/refresh), the authenticated account view, donor profile
+    management, and preliminary screening (FR-01, FR-02, FR-03, FR-04, FR-12).
+    Request and matching endpoints arrive in a later revision.
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+tags:
+  - name: health
+  - name: auth
+  - name: donor
+  - name: screening
+
+paths:
+  /healthz:
+    get:
+      tags: [health]
+      summary: Liveness probe
+      security: []
+      responses:
+        "200":
+          description: Process is up
+  /readyz:
+    get:
+      tags: [health]
+      summary: Readiness probe (checks the database)
+      security: []
+      responses:
+        "200": { description: Ready }
+        "503": { description: Not ready }
+
+  /api/v1/auth/register:
+    post:
+      tags: [auth]
+      summary: Register a donor account (FR-01)
+      description: >
+        Self-registration for donors only. Requires an 18-or-older declaration.
+        No national ID is collected. Returns the new account and a token pair.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RegisterRequest" }
+      responses:
+        "201":
+          description: Account created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409":
+          description: Email already registered
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/v1/auth/login:
+    post:
+      tags: [auth]
+      summary: Authenticate with email and password
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: Authenticated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /api/v1/auth/refresh:
+    post:
+      tags: [auth]
+      summary: Exchange a refresh token for a new token pair
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RefreshRequest" }
+      responses:
+        "200":
+          description: New token pair
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenPair" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v1/auth/me:
+    get:
+      tags: [auth]
+      summary: The authenticated caller's account
+      responses:
+        "200":
+          description: Account
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v1/donor/profile:
+    get:
+      tags: [donor]
+      summary: Get the caller's donor profile
+      responses:
+        "200":
+          description: Donor profile
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DonorProfile" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [donor]
+      summary: Update the caller's donor profile (FR-02)
+      description: >
+        Partial update. Only the fields present are changed. latitude and
+        longitude must be supplied together.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateProfileRequest" }
+      responses:
+        "200":
+          description: Updated profile
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DonorProfile" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/screening/questions:
+    get:
+      tags: [screening]
+      summary: The preliminary screening questionnaire (FR-03)
+      responses:
+        "200":
+          description: Questions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  questions:
+                    type: array
+                    items: { $ref: "#/components/schemas/ScreeningQuestion" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/screening:
+    post:
+      tags: [screening]
+      summary: Submit screening answers (FR-03, FR-04)
+      description: >
+        Stores the donor's yes/no answers and returns NON-DIAGNOSTIC guidance.
+        The response never states an eligibility decision; the clinic decides in
+        person.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ScreeningRequest" }
+      responses:
+        "201":
+          description: Stored, with guidance
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScreeningResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/screening/me:
+    get:
+      tags: [screening]
+      summary: The caller's latest screening state
+      responses:
+        "200":
+          description: Latest screening
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScreeningResult" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  security:
+    - bearerAuth: []
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: Missing or invalid credentials/token
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: Authenticated but not permitted for this role (FR-12)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string, example: invalid_request }
+            message: { type: string }
+    BloodType:
+      type: string
+      enum: ["O-","O+","A-","A+","B-","B+","AB-","AB+","unknown"]
+    User:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        email: { type: string, format: email }
+        role: { type: string, enum: [donor, clinic_employee, clinic_admin, system_admin] }
+        full_name: { type: string }
+        phone: { type: string, nullable: true }
+    TokenPair:
+      type: object
+      properties:
+        access_token: { type: string }
+        refresh_token: { type: string }
+        token_type: { type: string, example: Bearer }
+        expires_in: { type: integer, description: access-token lifetime in seconds }
+    AuthResponse:
+      type: object
+      properties:
+        user: { $ref: "#/components/schemas/User" }
+        tokens: { $ref: "#/components/schemas/TokenPair" }
+    RegisterRequest:
+      type: object
+      required: [email, password, full_name, age_18_or_older]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 8 }
+        full_name: { type: string }
+        phone: { type: string }
+        blood_type: { $ref: "#/components/schemas/BloodType" }
+        age_18_or_older: { type: boolean, description: must be true (FR-01) }
+        travel_radius_m: { type: integer, default: 10000 }
+        latitude: { type: number, format: double }
+        longitude: { type: number, format: double }
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+    RefreshRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token: { type: string }
+    DonorProfile:
+      type: object
+      properties:
+        user_id: { type: integer, format: int64 }
+        blood_type: { $ref: "#/components/schemas/BloodType" }
+        is_age_eligible: { type: boolean }
+        is_available: { type: boolean }
+        travel_radius_m: { type: integer }
+        latitude: { type: number, format: double, nullable: true }
+        longitude: { type: number, format: double, nullable: true }
+        last_donation_date: { type: string, format: date, nullable: true }
+    UpdateProfileRequest:
+      type: object
+      description: All fields optional; only those present are changed.
+      properties:
+        blood_type: { $ref: "#/components/schemas/BloodType" }
+        is_available: { type: boolean }
+        travel_radius_m: { type: integer }
+        latitude: { type: number, format: double }
+        longitude: { type: number, format: double }
+        last_donation_date: { type: string, format: date }
+    ScreeningQuestion:
+      type: object
+      properties:
+        id: { type: string }
+        prompt: { type: string }
+        flag_answer: { type: boolean, description: the answer that suggests a possible restriction }
+    ScreeningRequest:
+      type: object
+      required: [answers]
+      properties:
+        answers:
+          type: object
+          additionalProperties: { type: boolean }
+          description: one boolean per question id; all questions must be answered
+    ScreeningResult:
+      type: object
+      properties:
+        has_flags: { type: boolean }
+        guidance: { type: string, description: non-diagnostic guidance; never a decision (FR-04) }
+        flagged_question_ids:
+          type: array
+          items: { type: string }
+        submitted_at: { type: string, format: date-time }
+
+security:
+  - bearerAuth: []

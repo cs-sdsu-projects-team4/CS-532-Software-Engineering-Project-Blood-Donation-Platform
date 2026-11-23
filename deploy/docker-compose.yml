@@ -31,6 +31,10 @@ services:
       APP_ENV: ${APP_ENV:-development}
       # Inside the compose network the database host is "db", not "localhost".
       DATABASE_URL: postgres://${POSTGRES_USER:-blood}:${POSTGRES_PASSWORD:-blood}@db:5432/${POSTGRES_DB:-blooddb}?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in deploy/.env}
+      JWT_ISSUER: ${JWT_ISSUER:-blood-donation-api}
+      ACCESS_TOKEN_TTL: ${ACCESS_TOKEN_TTL:-15m}
+      REFRESH_TOKEN_TTL: ${REFRESH_TOKEN_TTL:-720h}
     ports:
       - "8080:8080"
     depends_on:

@@ -9,17 +9,19 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/blood-donation/backend/internal/auth"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// NewRouter wires middleware and routes and returns an http.Handler.
-func NewRouter(logger *slog.Logger, db *pgxpool.Pool) http.Handler {
+// NewRouter wires middleware and routes and returns an http.Handler. tokens
+// issues/verifies the JWTs used by the auth middleware and the auth endpoints.
+func NewRouter(logger *slog.Logger, db *pgxpool.Pool, tokens *auth.TokenManager) http.Handler {
 	r := chi.NewRouter()
 
 	// Middleware runs on every request, in order.
-	r.Use(middleware.RequestID)                // tag each request with an id
+	r.Use(middleware.RequestID)                 // tag each request with an id
 	r.Use(middleware.RealIP)                    // trust proxy headers for client IP
 	r.Use(middleware.Logger)                    // log method, path, status, duration
 	r.Use(middleware.Recoverer)                 // turn panics into 500s, don't crash
@@ -31,9 +33,40 @@ func NewRouter(logger *slog.Logger, db *pgxpool.Pool) http.Handler {
 	r.Get("/healthz", h.live)
 	r.Get("/readyz", h.ready)
 
-	// Future feature routes mount under /api/v1 (added in later PRs).
-	// r.Route("/api/v1", func(r chi.Router) { ... })
+	api := newAPIHandler(logger, db, tokens)
+	mountV1(r, api, tokens)
 
-	_ = logger // reserved for request-scoped logging in later PRs
 	return r
+}
+
+// mountV1 registers all /api/v1 feature routes on r. It is separated from
+// NewRouter so tests can mount the same routes against a fake-backed apiHandler.
+func mountV1(r chi.Router, api *apiHandler, tokens *auth.TokenManager) {
+	r.Route("/api/v1", func(r chi.Router) {
+		// --- public: no token required ---
+		r.Post("/auth/register", api.registerDonor) // donor self-registration (FR-01)
+		r.Post("/auth/login", api.login)
+		r.Post("/auth/refresh", api.refresh)
+
+		// --- authenticated: valid access token required ---
+		r.Group(func(r chi.Router) {
+			r.Use(auth.Authenticator(tokens))
+
+			// Any authenticated user can read their own account.
+			r.Get("/auth/me", api.me)
+
+			// Donor-only area (FR-02, FR-03, FR-04). RBAC is enforced here in the
+			// backend, never in the clients (FR-12).
+			r.Group(func(r chi.Router) {
+				r.Use(auth.RequireRole(auth.RoleDonor))
+
+				r.Get("/donor/profile", api.getMyProfile)
+				r.Patch("/donor/profile", api.updateMyProfile)
+
+				r.Get("/screening/questions", api.getQuestionnaire)
+				r.Post("/screening", api.submitScreening)
+				r.Get("/screening/me", api.getMyScreening)
+			})
+		})
+	})
 }

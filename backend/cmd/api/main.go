@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/blood-donation/backend/internal/auth"
 	"github.com/blood-donation/backend/internal/config"
 	apihttp "github.com/blood-donation/backend/internal/http"
 	"github.com/blood-donation/backend/internal/store"
@@ -42,7 +43,14 @@ func main() {
 	}
 	defer db.Close()
 
-	router := apihttp.NewRouter(logger, db)
+	// Token manager signs/verifies the JWTs used for auth and RBAC.
+	tokens, err := auth.NewTokenManager(cfg.JWTSecret, cfg.JWTIssuer, cfg.AccessTokenTTL, cfg.RefreshTokenTTL)
+	if err != nil {
+		logger.Error("failed to init token manager", "err", err)
+		os.Exit(1)
+	}
+
+	router := apihttp.NewRouter(logger, db, tokens)
 
 	srv := &http.Server{
 		Addr:         cfg.HTTPAddr,

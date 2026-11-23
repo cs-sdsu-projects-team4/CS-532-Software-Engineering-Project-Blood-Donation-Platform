@@ -1,7 +1,7 @@
 -- 0001_init: baseline database setup.
 --
--- Goose reads the "-- +goose Up" section to apply a migration and the
--- "-- +goose Down" section to roll it back. Apply with:
+-- Goose applies the "Up" section of a migration and rolls back with the
+-- "Down" section (each marked by its own goose annotation below). Apply with:
 --   goose -dir migrations postgres "$DATABASE_URL" up
 --
 -- This baseline only enables the extensions the rest of the schema depends on.
