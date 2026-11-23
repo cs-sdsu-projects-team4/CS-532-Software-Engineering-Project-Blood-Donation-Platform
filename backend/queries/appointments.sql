@@ -17,13 +17,15 @@ WHERE id = @id;
 SELECT id, request_id, donor_user_id, clinic_id, scheduled_at, status, created_at, updated_at
 FROM appointments
 WHERE donor_user_id = @donor_user_id
-ORDER BY scheduled_at;
+ORDER BY scheduled_at
+LIMIT @row_limit OFFSET @row_offset;
 
 -- name: ListAppointmentsForClinic :many
 SELECT id, request_id, donor_user_id, clinic_id, scheduled_at, status, created_at, updated_at
 FROM appointments
 WHERE clinic_id = @clinic_id
-ORDER BY scheduled_at;
+ORDER BY scheduled_at
+LIMIT @row_limit OFFSET @row_offset;
 
 -- name: SetAppointmentStatus :one
 -- Cancel/complete/no_show. Cancelling frees the slot (it leaves the partial
