@@ -1,13 +1,16 @@
 package http
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/blood-donation/backend/internal/auth"
 	"github.com/blood-donation/backend/internal/store"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // createClinicBody is a system_admin's new clinic. latitude/longitude are optional
@@ -237,7 +240,80 @@ func (h *apiHandler) listClinicMembers(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// listActivity handles GET /api/v1/admin/activity (system_admin) — the audit feed
+// (FR-13). With ?entity_type=&entity_id= it returns that entity's history; without
+// them it returns the most recent entries (?limit=, default 50, max 200).
+func (h *apiHandler) listActivity(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	entityType := strings.TrimSpace(q.Get("entity_type"))
+	entityIDStr := strings.TrimSpace(q.Get("entity_id"))
+
+	var rows []store.ActivityLog
+	var err error
+	if entityType != "" && entityIDStr != "" {
+		eid, perr := strconv.ParseInt(entityIDStr, 10, 64)
+		if perr != nil {
+			writeError(w, http.StatusBadRequest, "invalid_request", "entity_id must be an integer")
+			return
+		}
+		rows, err = h.queries.ListActivityLogsForEntity(r.Context(), store.ListActivityLogsForEntityParams{
+			EntityType: pgtype.Text{String: entityType, Valid: true},
+			EntityID:   pgtype.Int8{Int64: eid, Valid: true},
+		})
+	} else {
+		rows, err = h.queries.ListRecentActivityLogs(r.Context(), parseLimit(q.Get("limit"), 50, 200))
+	}
+	if err != nil {
+		h.serverError(w, "list activity", err)
+		return
+	}
+
+	out := make([]activityLogResponse, 0, len(rows))
+	for _, a := range rows {
+		out = append(out, toActivityLogResponse(a))
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// parseLimit parses a positive limit query value, clamping to [1, max] and
+// falling back to def when absent or unparseable.
+func parseLimit(s string, def, max int32) int32 {
+	if s == "" {
+		return def
+	}
+	v, err := strconv.ParseInt(s, 10, 32)
+	if err != nil || v <= 0 {
+		return def
+	}
+	if int32(v) > max {
+		return max
+	}
+	return int32(v)
+}
+
 // --- response shapes ---
+
+type activityLogResponse struct {
+	ID          int64           `json:"id"`
+	ActorUserID *int64          `json:"actor_user_id"`
+	Action      string          `json:"action"`
+	EntityType  *string         `json:"entity_type"`
+	EntityID    *int64          `json:"entity_id"`
+	Metadata    json.RawMessage `json:"metadata,omitempty"`
+	CreatedAt   string          `json:"created_at"`
+}
+
+func toActivityLogResponse(a store.ActivityLog) activityLogResponse {
+	return activityLogResponse{
+		ID:          a.ID,
+		ActorUserID: int8Ptr(a.ActorUserID),
+		Action:      a.Action,
+		EntityType:  textPtr(a.EntityType),
+		EntityID:    int8Ptr(a.EntityID),
+		Metadata:    json.RawMessage(a.Metadata),
+		CreatedAt:   tsString(a.CreatedAt),
+	}
+}
 
 type clinicMemberResponse struct {
 	ID        int64  `json:"id"`

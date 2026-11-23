@@ -113,6 +113,9 @@ func mountV1(r chi.Router, api *apiHandler, tokens *auth.TokenManager) {
 				// Clinic staff provisioning (clinic_employee / clinic_admin).
 				r.Post("/admin/clinics/{id}/members", api.createClinicMember)
 				r.Get("/admin/clinics/{id}/members", api.listClinicMembers)
+
+				// Audit feed (FR-13): recent, or filtered by entity.
+				r.Get("/admin/activity", api.listActivity)
 			})
 		})
 	})
