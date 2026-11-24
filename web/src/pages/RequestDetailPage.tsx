@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import MatchList from "../components/MatchList";
 import StatusBadge from "../components/StatusBadge";
 import { useAuth } from "../auth/useAuth";
 import { useAsync } from "../hooks/useAsync";
@@ -185,6 +186,10 @@ export default function RequestDetailPage() {
                 </button>
               )}
             </div>
+          )}
+
+          {(req.status === "approved" || req.status === "fulfilled") && (
+            <MatchList requestId={req.id} />
           )}
         </>
       )}
