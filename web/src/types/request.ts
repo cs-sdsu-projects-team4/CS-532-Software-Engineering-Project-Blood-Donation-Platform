@@ -51,6 +51,12 @@ export interface BloodRequest {
   updated_at: string;
 }
 
+/** Result of approving a request: the updated request + how many donors matched. */
+export interface ApproveResult {
+  request: BloodRequest;
+  matched_count: number;
+}
+
 export interface CreateRequestInput {
   blood_type: BloodType;
   units_needed: number;
