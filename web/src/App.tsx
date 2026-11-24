@@ -5,6 +5,7 @@ import DashboardPage from "./pages/DashboardPage.tsx";
 import LoginPage from "./pages/LoginPage.tsx";
 import RequestsPage from "./pages/RequestsPage.tsx";
 import NewRequestPage from "./pages/NewRequestPage.tsx";
+import RequestDetailPage from "./pages/RequestDetailPage.tsx";
 import NotFoundPage from "./pages/NotFoundPage.tsx";
 
 export default function App() {
@@ -17,6 +18,7 @@ export default function App() {
             <Route index element={<DashboardPage />} />
             <Route path="requests" element={<RequestsPage />} />
             <Route path="requests/new" element={<NewRequestPage />} />
+            <Route path="requests/:id" element={<RequestDetailPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Route>
         </Route>
