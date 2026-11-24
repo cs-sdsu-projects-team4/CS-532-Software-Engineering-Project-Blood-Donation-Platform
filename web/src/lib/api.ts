@@ -32,6 +32,20 @@ export function setAuthTokenProvider(provider: TokenProvider): void {
   getToken = provider;
 }
 
+/**
+ * Attempts to refresh the access token. Resolves true if a new token is now
+ * available (so the request should be retried), false otherwise.
+ */
+type TokenRefresher = () => Promise<boolean>;
+
+// Registered by the auth layer (WEB-PR2). Null means no refresh is possible, so
+// a 401 propagates to the caller unchanged.
+let refreshToken: TokenRefresher | null = null;
+
+export function setTokenRefresher(refresher: TokenRefresher | null): void {
+  refreshToken = refresher;
+}
+
 export interface RequestOptions extends Omit<RequestInit, "body"> {
   /** JSON-serialisable request body; sets Content-Type automatically. */
   body?: unknown;
@@ -49,27 +63,42 @@ export async function apiFetch<T>(
 ): Promise<T> {
   const { body, auth = true, headers, ...rest } = options;
 
-  const requestHeaders = new Headers(headers);
-  requestHeaders.set("Accept", "application/json");
-
-  if (auth) {
-    const token = getToken();
-    if (token) {
-      requestHeaders.set("Authorization", `Bearer ${token}`);
-    }
-  }
-
   let requestBody: BodyInit | undefined;
   if (body !== undefined) {
-    requestHeaders.set("Content-Type", "application/json");
     requestBody = JSON.stringify(body);
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...rest,
-    headers: requestHeaders,
-    body: requestBody,
-  });
+  // Build the headers fresh on each send so a retry picks up a refreshed token.
+  const send = (): Promise<Response> => {
+    const requestHeaders = new Headers(headers);
+    requestHeaders.set("Accept", "application/json");
+    if (body !== undefined) {
+      requestHeaders.set("Content-Type", "application/json");
+    }
+    if (auth) {
+      const token = getToken();
+      if (token) {
+        requestHeaders.set("Authorization", `Bearer ${token}`);
+      }
+    }
+    return fetch(`${API_BASE_URL}${path}`, {
+      ...rest,
+      headers: requestHeaders,
+      body: requestBody,
+    });
+  };
+
+  let response = await send();
+
+  // On an expired/invalid access token, try a single refresh-and-retry so the
+  // caller never sees a transient 401. auth===false requests (login/refresh)
+  // skip this to avoid recursion.
+  if (response.status === 401 && auth && refreshToken) {
+    const refreshed = await refreshToken();
+    if (refreshed) {
+      response = await send();
+    }
+  }
 
   if (response.status === 204) {
     return undefined as T;
